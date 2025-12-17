@@ -1,5 +1,7 @@
+'use client';
+
 import React, { useState, useRef, useEffect } from 'react';
-import { DiscoveryFile, ViewMode } from '../types';
+import { DiscoveryFile, ViewMode } from '@/lib/types';
 
 interface TerminalInterfaceProps {
   files: DiscoveryFile[];
@@ -15,10 +17,10 @@ interface LogEntry {
   content: React.ReactNode;
 }
 
-const TerminalInterface: React.FC<TerminalInterfaceProps> = ({ 
-  files, 
-  onSelectFile, 
-  onAskAI, 
+const TerminalInterface: React.FC<TerminalInterfaceProps> = ({
+  files,
+  onSelectFile,
+  onAskAI,
   onSetViewMode,
   onTriggerHunt,
   isScanning = false
@@ -83,8 +85,8 @@ const TerminalInterface: React.FC<TerminalInterfaceProps> = ({
             <p>Ready for Inquiry: <span className="text-emerald-500 font-bold">{total - processing}</span></p>
             <p>Background Threads: <span className="text-amber-500 font-bold">{processing} active</span></p>
             <div className="w-full bg-slate-800 h-1 mt-2 rounded-full overflow-hidden">
-                <div 
-                  className="bg-emerald-500 h-full transition-all duration-500" 
+                <div
+                  className="bg-emerald-500 h-full transition-all duration-500"
                   style={{ width: total ? `${((total - processing) / total) * 100}%` : '0%' }}
                 ></div>
             </div>
@@ -189,18 +191,18 @@ const TerminalInterface: React.FC<TerminalInterfaceProps> = ({
   };
 
   return (
-    <div 
+    <div
       className="h-full bg-slate-950 font-mono text-slate-300 flex flex-col p-6 overflow-hidden relative shadow-2xl"
       onClick={() => inputRef.current?.focus()}
     >
       {/* Visual Glitch/Terminal Effect Overlay */}
       <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]"></div>
-      
+
       <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar pr-2 mb-4 scroll-smooth" ref={scrollRef}>
         {history.map((entry, i) => (
           <div key={i} className={`whitespace-pre-wrap leading-relaxed animate-in fade-in slide-in-from-left-2 duration-300 ${
-            entry.type === 'error' ? 'text-rose-500' : 
-            entry.type === 'success' ? 'text-emerald-500' : 
+            entry.type === 'error' ? 'text-rose-500' :
+            entry.type === 'success' ? 'text-emerald-500' :
             entry.type === 'system' ? 'text-indigo-400 italic opacity-80' :
             entry.type === 'input' ? 'text-white font-bold' : ''
           }`}>
@@ -208,7 +210,7 @@ const TerminalInterface: React.FC<TerminalInterfaceProps> = ({
           </div>
         ))}
       </div>
-      
+
       <form onSubmit={handleSubmit} className="flex items-center shrink-0 border-t border-slate-800/50 pt-4 pb-2">
         <span className="text-emerald-500 mr-2 font-bold font-mono tracking-tighter">discovery@lens:~$</span>
         <input

@@ -1,13 +1,15 @@
+'use client';
+
 
 import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData } from './types';
-import { BATES_PREFIX_DEFAULT } from './constants';
-import { analyzeFile, chatWithDiscovery } from './services/geminiService';
-import FilePreview from './components/FilePreview';
-import ChatInterface from './components/ChatInterface';
-import BatesBadge from './components/BatesBadge';
-import Timeline from './components/Timeline';
-import TerminalInterface from './components/TerminalInterface';
+import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData } from '@/lib/types';
+import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
+import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
+import FilePreview from '@/app/components/FilePreview';
+import ChatInterface from '@/app/components/ChatInterface';
+import BatesBadge from '@/app/components/BatesBadge';
+import Timeline from '@/app/components/Timeline';
+import TerminalInterface from '@/app/components/TerminalInterface';
 
 // --- Helper Functions ---
 const getFileType = (file: File): FileType => {

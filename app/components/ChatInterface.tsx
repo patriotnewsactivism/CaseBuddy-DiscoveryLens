@@ -1,5 +1,7 @@
+'use client';
+
 import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage } from '../types';
+import { ChatMessage } from '@/lib/types';
 import BatesBadge from './BatesBadge';
 
 interface ChatInterfaceProps {
@@ -28,7 +30,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
   const renderMessageContent = (text: string) => {
     // Regex to find [DEF-XXX] patterns
     const parts = text.split(/(\[[A-Z]+-\d+\])/g);
-    
+
     return parts.map((part, i) => {
       if (part.match(/^\[[A-Z]+-\d+\]$/)) {
         return (
@@ -58,13 +60,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
             </div>
           </div>
         )}
-        
+
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div 
+            <div
               className={`max-w-[85%] rounded-lg p-3 text-sm leading-relaxed shadow-sm ${
-                msg.role === 'user' 
-                  ? 'bg-indigo-600 text-white' 
+                msg.role === 'user'
+                  ? 'bg-indigo-600 text-white'
                   : 'bg-white text-slate-800 border border-slate-200'
               }`}
             >

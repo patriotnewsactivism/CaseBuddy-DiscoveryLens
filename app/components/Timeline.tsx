@@ -1,5 +1,7 @@
+'use client';
+
 import React from 'react';
-import { DiscoveryFile } from '../types';
+import { DiscoveryFile } from '@/lib/types';
 import BatesBadge from './BatesBadge';
 
 interface TimelineProps {
@@ -11,12 +13,12 @@ const Timeline: React.FC<TimelineProps> = ({ files, onSelectFile }) => {
   // Aggregate all dates from analyses
   const events = React.useMemo(() => {
     const allEvents: Array<{ date: string; description: string; file: DiscoveryFile }> = [];
-    
+
     files.forEach(f => {
       if (f.analysis?.dates) {
         f.analysis.dates.forEach(d => {
             // Very basic heuristic to check if it looks like a date/time
-            if (d.length > 4) { 
+            if (d.length > 4) {
                 allEvents.push({
                     date: d,
                     description: `Reference in ${f.name}`,

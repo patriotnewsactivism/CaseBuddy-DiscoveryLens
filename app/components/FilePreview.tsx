@@ -1,5 +1,7 @@
+'use client';
+
 import React, { useState } from 'react';
-import { DiscoveryFile, FileType } from '../types';
+import { DiscoveryFile, FileType } from '@/lib/types';
 import BatesBadge from './BatesBadge';
 
 interface FilePreviewProps {
@@ -60,7 +62,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
 
   const renderAnalysisContent = () => {
     if (!file.analysis) return <div className="p-8 text-center text-slate-400">Analysis pending...</div>;
-    
+
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-6">
         <div>
@@ -100,14 +102,14 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
   const renderTranscriptionContent = () => {
     if (!file.analysis) return <div className="p-8 text-center text-slate-400">Processing transcription...</div>;
     const text = file.analysis.transcription || "No text content found in this file.";
-    
+
     return (
        <div className="h-full flex flex-col">
           <div className="p-4 bg-yellow-50 border-b border-yellow-100 flex justify-between items-center">
              <span className="text-xs font-bold text-yellow-800 uppercase tracking-wide">
                 {file.type === 'AUDIO' || file.type === 'VIDEO' ? 'Verbatim Transcript' : 'Extracted Text'}
              </span>
-             <button 
+             <button
                onClick={() => navigator.clipboard.writeText(text)}
                className="text-xs bg-white text-yellow-800 px-2 py-1 rounded border border-yellow-200 hover:bg-yellow-100 transition-colors"
              >
@@ -148,19 +150,19 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
 
       {/* Tabs */}
       <div className="flex border-b border-slate-200 bg-white px-6 space-x-6 shrink-0">
-         <button 
+         <button
            onClick={() => setActiveTab('preview')}
            className={`py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'preview' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
          >
            Media Preview
          </button>
-         <button 
+         <button
            onClick={() => setActiveTab('analysis')}
            className={`py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'analysis' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
          >
            AI Analysis
          </button>
-         <button 
+         <button
            onClick={() => setActiveTab('transcription')}
            className={`py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'transcription' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
          >
