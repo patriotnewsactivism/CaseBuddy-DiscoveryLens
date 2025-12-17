@@ -1,8 +1,13 @@
 {
   "permissions": {
     "allow": [
+<<<<<<< HEAD
       "Bash(npm uninstall:*)",
       "Bash(npx tailwindcss:*)"
+=======
+      "Bash(git checkout:*)",
+      "Bash(npm install:*)"
+>>>>>>> 101b508a51fbf33da2a5791905ef7abfb11bc427
     ]
   }
 }
