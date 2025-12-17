@@ -1,0 +1,7 @@
+{
+  "name": "DiscoveryLens",
+  "description": "A legal discovery assistant that uses Gemini to analyze, Bates-stamp, and cross-reference documents, audio, and video for trial preparation.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
