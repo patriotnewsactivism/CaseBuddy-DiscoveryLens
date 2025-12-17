@@ -2,7 +2,7 @@
 
 
 import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData } from '@/lib/types';
+import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor } from '@/lib/types';
 import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
 import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
 import FilePreview from '@/app/components/FilePreview';
@@ -32,6 +32,12 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.DASHBOARD);
   const [searchTerm, setSearchTerm] = useState('');
   const [isScanning, setIsScanning] = useState(false);
+  const [projectName, setProjectName] = useState('Untitled Project');
+  const [activeMobilePanel, setActiveMobilePanel] = useState<'files' | 'content' | 'chat'>('content');
+  const [isSavingProject, setIsSavingProject] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastManifestKey, setLastManifestKey] = useState<string | null>(null);
   
   // Refs
   const dirInputRef = useRef<HTMLInputElement>(null);
@@ -125,6 +131,7 @@ export default function App() {
   const handleSelectFile = (id: string) => {
     setSelectedFileId(id);
     setViewMode(ViewMode.EVIDENCE_VIEWER);
+    setActiveMobilePanel('content');
   };
 
   const handleSendMessage = async (text: string) => {
@@ -155,6 +162,95 @@ export default function App() {
     }
   };
 
+  const handleSaveProject = useCallback(async () => {
+    if (!projectName.trim()) {
+      setSaveError('Name your project before saving.');
+      setSaveMessage(null);
+      return;
+    }
+
+    if (files.length === 0) {
+      setSaveError('Add evidence files before saving to the cloud.');
+      setSaveMessage(null);
+      return;
+    }
+
+    setIsSavingProject(true);
+    setSaveError(null);
+    setSaveMessage(null);
+
+    try {
+      const presignResponse = await fetch('/api/projects/presign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectName: projectName.trim(),
+          files: files.map(f => ({ id: f.id, name: f.name, mimeType: f.mimeType })),
+        }),
+      });
+
+      if (!presignResponse.ok) {
+        const errorData = await presignResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Unable to prepare cloud uploads.');
+      }
+
+      const { uploads } = (await presignResponse.json()) as { uploads: PresignedUpload[] };
+      const uploadMap = new Map(uploads.map(upload => [upload.id, upload]));
+
+      for (const file of files) {
+        const upload = uploadMap.get(file.id);
+        if (!upload) {
+          throw new Error(`Missing upload URL for ${file.name}`);
+        }
+
+        const uploadResult = await fetch(upload.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.mimeType },
+          body: file.file,
+        });
+
+        if (!uploadResult.ok) {
+          throw new Error(`Upload failed for ${file.name}`);
+        }
+      }
+
+      const manifestPayload = {
+        projectName: projectName.trim(),
+        files: files.map<ProjectFileDescriptor>(f => {
+          const upload = uploadMap.get(f.id);
+          return {
+            id: f.id,
+            name: f.name,
+            mimeType: f.mimeType,
+            size: f.file.size,
+            batesNumber: f.batesNumber,
+            analysis: f.analysis,
+            storageKey: upload?.objectKey,
+          };
+        }),
+      };
+
+      const saveResponse = await fetch('/api/projects/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(manifestPayload),
+      });
+
+      if (!saveResponse.ok) {
+        const errorData = await saveResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Unable to save project manifest.');
+      }
+
+      const saveData = await saveResponse.json();
+      setSaveMessage('Project saved to cloud storage.');
+      setLastManifestKey(saveData.manifestKey || null);
+    } catch (error: any) {
+      setSaveError(error?.message || 'Unable to save project.');
+    } finally {
+      setIsSavingProject(false);
+    }
+  }, [files, projectName]);
+
   const triggerHunt = () => {
     dirInputRef.current?.click();
   };
@@ -184,7 +280,7 @@ export default function App() {
   // --- Render ---
 
   return (
-    <div className="flex flex-col h-screen bg-slate-100 overflow-hidden">
+    <div className="flex flex-col min-h-screen bg-slate-100 overflow-hidden">
       
       {/* Hidden Folder Picker */}
       <input 
@@ -197,7 +293,7 @@ export default function App() {
       />
 
       {/* Header */}
-      <header className="bg-slate-900 text-white h-16 flex items-center justify-between px-6 shadow-md z-10 shrink-0">
+      <header className="bg-slate-900 text-white px-4 md:px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shadow-md z-10 shrink-0">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-indigo-500 rounded flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
@@ -205,28 +301,79 @@ export default function App() {
                <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
             </svg>
           </div>
-          <h1 className="text-xl font-serif tracking-wide">DiscoveryLens</h1>
+          <div>
+            <h1 className="text-xl font-serif tracking-wide">DiscoveryLens</h1>
+            <p className="text-xs text-slate-300">Mobile-friendly legal discovery cockpit</p>
+          </div>
         </div>
         
-        <div className="flex items-center space-x-4">
-           <button 
-             onClick={() => setViewMode(ViewMode.CLI)}
-             className={`px-3 py-1 rounded text-xs font-mono border transition-all ${viewMode === ViewMode.CLI ? 'bg-indigo-600 border-indigo-500 ring-2 ring-indigo-500/50' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
-           >
-             TERMINAL_MODE
-           </button>
-           <span className="flex items-center space-x-1 text-xs text-slate-400 bg-slate-800 px-2 py-1 rounded-full border border-slate-700">
-             <span className={`w-2 h-2 rounded-full ${isScanning ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></span>
-             <span>{isScanning ? 'Scraping Target...' : 'System Idle'}</span>
-           </span>
+        <div className="flex flex-col gap-2 w-full sm:w-auto">
+           <div className="flex flex-wrap items-center justify-end gap-2">
+             <button 
+               onClick={() => { setViewMode(ViewMode.CLI); setActiveMobilePanel('content'); }}
+               className={`px-3 py-1 rounded text-[11px] font-mono border transition-all ${viewMode === ViewMode.CLI ? 'bg-indigo-600 border-indigo-500 ring-2 ring-indigo-500/50' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
+             >
+               TERMINAL_MODE
+             </button>
+             <span className="flex items-center space-x-1 text-[11px] text-slate-300 bg-slate-800 px-2 py-1 rounded-full border border-slate-700">
+               <span className={`w-2 h-2 rounded-full ${isScanning ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></span>
+               <span>{isScanning ? 'Scraping Target...' : 'System Idle'}</span>
+             </span>
+             {lastManifestKey && (
+               <span className="text-[11px] text-emerald-200 bg-emerald-900/40 px-2 py-1 rounded-full border border-emerald-700">
+                 Cloud saved
+               </span>
+             )}
+           </div>
+           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 w-full">
+             <div className="flex items-center gap-2 w-full sm:w-80">
+               <label className="sr-only" htmlFor="project-name">Project name</label>
+               <input
+                 id="project-name"
+                 type="text"
+                 value={projectName}
+                 onChange={(e) => setProjectName(e.target.value)}
+                 className="flex-1 text-sm bg-slate-800 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                 placeholder="Name this project..."
+               />
+               <button
+                 onClick={handleSaveProject}
+                 disabled={isSavingProject}
+                 className={`px-3 py-2 rounded text-sm font-semibold transition-colors ${isSavingProject ? 'bg-slate-700 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500'} text-white shadow`}
+               >
+                 {isSavingProject ? 'Saving...' : 'Save to Cloud'}
+               </button>
+             </div>
+             <div className="text-xs min-h-[20px] text-right">
+               {saveMessage && <span className="text-emerald-200">{saveMessage}</span>}
+               {saveError && <span className="text-amber-200">{saveError}</span>}
+             </div>
+           </div>
         </div>
       </header>
 
+      {/* Mobile navigation */}
+      <div className="md:hidden bg-white border-b border-slate-200 flex justify-between px-2 py-2 gap-2">
+        {[
+          { key: 'files', label: 'Files' },
+          { key: 'content', label: 'Workspace' },
+          { key: 'chat', label: 'AI' },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveMobilePanel(tab.key as 'files' | 'content' | 'chat')}
+            className={`flex-1 text-sm font-semibold px-3 py-2 rounded border ${activeMobilePanel === tab.key ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-white text-slate-600 border-slate-200'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 flex-col md:flex-row overflow-hidden">
         
         {/* Left Sidebar: Organized Evidence System */}
-        <div className="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0">
+        <div className={`md:w-80 w-full bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col shrink-0 ${activeMobilePanel === 'files' ? 'flex' : 'hidden md:flex'}`}>
             {/* Folder Scraper Trigger */}
             <div className="p-4 border-b border-slate-200">
               <button 
@@ -304,11 +451,11 @@ export default function App() {
         </div>
 
         {/* Center: Viewer / Dashboard / CLI */}
-        <div className="flex-1 flex flex-col min-w-0 bg-slate-100 relative">
+        <div className={`flex-1 flex flex-col min-w-0 bg-slate-100 relative ${activeMobilePanel === 'content' ? 'flex' : 'hidden md:flex'}`}>
           
           {/* View Toggle Bar */}
           {viewMode !== ViewMode.CLI && (
-            <div className="h-12 bg-white border-b border-slate-200 flex items-center px-4 space-x-6">
+            <div className="h-12 bg-white border-b border-slate-200 flex items-center px-3 md:px-4 space-x-4 md:space-x-6 overflow-x-auto">
                <button 
                 onClick={() => { setSelectedFileId(null); setViewMode(ViewMode.DASHBOARD); }}
                 className={`text-sm font-medium h-full border-b-2 px-1 transition-all ${viewMode === ViewMode.DASHBOARD ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
@@ -348,16 +495,16 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200 col-span-full">
                        <h2 className="text-lg font-serif font-bold text-slate-800 mb-2">Target Index Summary</h2>
-                       <div className="flex space-x-8 text-sm">
-                          <div>
+                       <div className="flex flex-wrap gap-6 text-sm">
+                          <div className="min-w-[120px]">
                             <span className="block text-slate-400">Total evidence</span>
                             <span className="text-2xl font-bold text-slate-800">{files.length}</span>
                           </div>
-                          <div>
+                          <div className="min-w-[120px]">
                             <span className="block text-slate-400">Audio/Video</span>
                             <span className="text-2xl font-bold text-indigo-600">{files.filter(f => f.type === FileType.AUDIO || f.type === FileType.VIDEO).length}</span>
                           </div>
-                          <div>
+                          <div className="min-w-[120px]">
                             <span className="block text-slate-400">Documents</span>
                             <span className="text-2xl font-bold text-slate-600">{files.filter(f => f.type === FileType.DOCUMENT).length}</span>
                           </div>
@@ -396,7 +543,7 @@ export default function App() {
 
         {/* Right Sidebar: AI Assistant (Hidden in CLI) */}
         {viewMode !== ViewMode.CLI && (
-          <div className="w-96 bg-white border-l border-slate-200 flex flex-col shrink-0 z-10">
+          <div className={`md:w-96 w-full bg-white border-t md:border-t-0 md:border-l border-slate-200 flex flex-col shrink-0 z-10 ${activeMobilePanel === 'chat' ? 'flex' : 'hidden md:flex'}`}>
             <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
               <h2 className="font-serif font-bold text-slate-700">Discovery AI</h2>
               <span className="text-[10px] uppercase font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">Reasoning Engine</span>
