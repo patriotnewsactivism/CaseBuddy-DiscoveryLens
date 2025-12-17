@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Timeline/chronology view for organizing evidence
 - Terminal/CLI mode for power users
 
-**Tech Stack**: React 19 + TypeScript + Vite + TailwindCSS + Google Generative AI SDK
+**Tech Stack**: Next.js 16 + React 19 + TypeScript + TailwindCSS v4 + Google Generative AI SDK
 
 ## Development Commands
 
@@ -25,8 +25,11 @@ npm run dev
 # Build for production
 npm run build
 
-# Preview production build
-npm preview
+# Run production server
+npm start
+
+# Lint code
+npm run lint
 ```
 
 ## Environment Configuration
@@ -36,12 +39,28 @@ The app requires a Gemini API key. Create a `.env.local` file:
 GEMINI_API_KEY=your_api_key_here
 ```
 
-The Vite config (vite.config.ts:14-15) injects this as `process.env.API_KEY` and `process.env.GEMINI_API_KEY` at build time.
+**IMPORTANT**: The API key is server-side only and never exposed to the client. Next.js automatically prevents environment variables without `NEXT_PUBLIC_` prefix from being included in the browser bundle.
 
 ## Architecture
 
+### Next.js App Router Structure
+- **app/page.tsx**: Entry point that renders the main DiscoveryApp component
+- **app/layout.tsx**: Root layout with HTML structure and metadata
+- **app/components/**: All UI components (client-side with 'use client')
+- **app/api/**: Server-side API routes for Gemini proxy
+- **lib/**: Shared utilities and types
+
+### Security: Hybrid Client-Server Architecture
+Files stay in the browser (no server storage), but Gemini API calls are proxied through Next.js API routes:
+1. Client converts File to base64 using FileReader
+2. Client sends base64 + metadata to `/api/analyze` or `/api/chat`
+3. Server-side API route calls Gemini with secure API key
+4. Response sent back to client
+
+This keeps files private (browser-only) while hiding the API key from the client bundle.
+
 ### State Management
-All state is managed in App.tsx using React hooks (no external state library). Key state:
+All state is managed in app/components/DiscoveryApp.tsx using React hooks (no external state library). Key state:
 - `files`: Array of DiscoveryFile objects with Bates numbers and analysis results
 - `viewMode`: Controls which view is active (DASHBOARD, EVIDENCE_VIEWER, TIMELINE, CLI)
 - `chatMessages`: AI chat history
@@ -49,23 +68,23 @@ All state is managed in App.tsx using React hooks (no external state library). K
 
 ### Core Data Flow
 
-1. **File Upload** (App.tsx:43-89)
+1. **File Upload** (app/components/DiscoveryApp.tsx:43-89)
    - User selects folder via hidden file input with `webkitdirectory` attribute
    - Files are filtered to exclude system files and assigned sequential Bates numbers
    - Each file gets a UUID, preview URL (blob), and initial DiscoveryFile object
    - Files are added to state immediately as "processing"
 
-2. **AI Analysis** (App.tsx:91-121, services/geminiService.ts:31-82)
-   - Each file is analyzed in parallel via `processFileAnalysis()`
-   - `analyzeFile()` converts file to base64 and sends to Gemini 3 Flash Preview
-   - Structured output schema extracts: summary, evidenceType, entities, dates, relevantFacts, transcription, sentiment
-   - Analysis result updates the file's state (isProcessing: false, analysis: {...})
+2. **AI Analysis** (Hybrid Client-Server Flow)
+   - **Client** (lib/geminiService.ts:17-44): Converts file to base64, sends to `/api/analyze`
+   - **Server** (app/api/analyze/route.ts → lib/geminiServer.ts:10-60): Receives base64, calls Gemini 3 Flash Preview with API key
+   - **Response**: Structured output (summary, evidenceType, entities, dates, relevantFacts, transcription, sentiment) sent back to client
+   - Client updates file state (isProcessing: false, analysis: {...})
    - Errors fallback to generic "Error processing file" analysis
 
-3. **Chat System** (services/geminiService.ts:87-141)
-   - `chatWithDiscovery()` builds context from ALL file summaries
-   - If a file is "active" (being viewed), includes full transcription or raw file
-   - Uses Gemini 3 Pro Preview for chat responses
+3. **Chat System** (Hybrid Client-Server Flow)
+   - **Client** (lib/geminiService.ts:50-95): Builds simplified context, sends to `/api/chat`
+   - **Server** (app/api/chat/route.ts → lib/geminiServer.ts:66-110): Receives context, calls Gemini 3 Pro Preview with API key
+   - If a file is "active" (being viewed), includes full transcription or raw base64
    - Responses cite Bates numbers in brackets [DEF-XXX]
 
 ### Component Structure
@@ -119,64 +138,75 @@ Four modes controlled by `viewMode` enum (types.ts:46-51):
 - If viewing a file, append full transcription + "USER IS CURRENTLY VIEWING" instruction
 - This allows AI to answer both broad questions ("find contradictions") and specific file questions
 
-## Cloud Run Deployment Issue
+## Cloud Run Deployment
 
-**Current Problem**: The app fails to deploy to Cloud Run because:
-1. Vite dev server is not suitable for production (uses port 3000 by default)
-2. Cloud Run expects apps to listen on the PORT environment variable (typically 8080)
-3. Frontend apps need proper production build + static file serving
+The app is ready for Cloud Run deployment with the included Dockerfile:
 
-**To Fix**:
-- Build the app with `npm run build` (creates `dist/` folder)
-- Serve the `dist/` folder with a static file server (e.g., `serve`, `http-server`, or Express)
-- Update the container/Dockerfile to:
-  1. Run `npm run build` during build phase
-  2. Install a static file server
-  3. Serve `dist/` on the PORT env var
-
-Example Dockerfile:
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-RUN npm install -g serve
-CMD ["serve", "-s", "dist", "-l", "$PORT"]
-```
-
-Alternatively, use Vite's preview mode configured to use PORT:
 ```bash
-vite preview --port $PORT --host 0.0.0.0
+# Build Docker image
+docker build --build-arg GEMINI_API_KEY=$GEMINI_API_KEY -t discoverylens .
+
+# Test locally
+docker run -p 3000:3000 -e GEMINI_API_KEY=$GEMINI_API_KEY discoverylens
+
+# Deploy to Cloud Run
+gcloud builds submit --tag gcr.io/PROJECT_ID/discoverylens
+gcloud run deploy discoverylens \
+  --image gcr.io/PROJECT_ID/discoverylens \
+  --set-env-vars GEMINI_API_KEY=$GEMINI_API_KEY \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --memory 512Mi \
+  --cpu 1 \
+  --timeout 300s
 ```
+
+**Key Features**:
+- Next.js standalone output for minimal Docker image size
+- Multi-stage build for optimized production image
+- Proper user permissions (runs as non-root nextjs user)
+- Environment variable support for GEMINI_API_KEY
 
 ## File Organization
 
 ```
 /
-├── components/          # React UI components
-│   ├── BatesBadge.tsx
-│   ├── ChatInterface.tsx
-│   ├── FilePreview.tsx
-│   ├── TerminalInterface.tsx
-│   └── Timeline.tsx
-├── services/           # API integrations
-│   └── geminiService.ts  # Gemini AI client + analysis functions
-├── App.tsx            # Main application orchestrator
-├── types.ts           # TypeScript type definitions
-├── constants.ts       # System prompts and categories
-├── index.tsx          # React entry point
-├── vite.config.ts     # Vite configuration (dev server, env vars)
-└── package.json       # Dependencies and scripts
+├── app/
+│   ├── layout.tsx                # Root HTML layout
+│   ├── page.tsx                  # Entry point (renders DiscoveryApp)
+│   ├── globals.css               # Global styles + Tailwind directives
+│   ├── api/                      # Server-side API routes
+│   │   ├── analyze/route.ts      # POST /api/analyze - File analysis proxy
+│   │   └── chat/route.ts         # POST /api/chat - Chat proxy
+│   └── components/               # UI components (client-side)
+│       ├── DiscoveryApp.tsx      # Main app logic (was App.tsx)
+│       ├── BatesBadge.tsx
+│       ├── ChatInterface.tsx
+│       ├── FilePreview.tsx
+│       ├── TerminalInterface.tsx
+│       └── Timeline.tsx
+├── lib/
+│   ├── geminiServer.ts          # Server-side Gemini SDK (uses API key)
+│   ├── geminiService.ts         # Client-side service (calls API routes)
+│   ├── types.ts                 # TypeScript type definitions
+│   └── constants.ts             # System prompts and categories
+├── public/                      # Static assets
+├── .env.local                   # GEMINI_API_KEY (gitignored)
+├── .env.example                 # Environment template
+├── next.config.ts               # Next.js configuration
+├── tailwind.config.ts           # Tailwind v4 configuration
+├── Dockerfile                   # Docker build for Cloud Run
+└── package.json                 # Dependencies and scripts
 ```
 
 ## Important Notes
 
-- **No backend**: This is a pure frontend app. All Gemini API calls happen client-side (API key exposed in bundle).
+- **Hybrid architecture**: Files stay in browser (no server storage), API calls proxied through Next.js routes
+- **API key security**: GEMINI_API_KEY is server-side only, never exposed to client bundle
 - **No persistence**: Files and analysis are stored only in React state. Refreshing loses everything.
-- **Folder upload**: Uses non-standard `webkitdirectory` attribute (App.tsx:194) - works in Chrome/Edge, may not work in all browsers.
-- **Blob URLs**: Files create blob URLs for preview (App.tsx:73). These consume memory and aren't cleaned up until page refresh.
+- **Folder upload**: Uses non-standard `webkitdirectory` attribute (app/components/DiscoveryApp.tsx:194) - works in Chrome/Edge, may not work in all browsers.
+- **Blob URLs**: Files create blob URLs for preview. These consume memory and aren't cleaned up until page refresh.
 
 ## Testing the App
 
