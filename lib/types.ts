@@ -35,6 +35,29 @@ export interface DiscoveryFile {
   mimeType: string;
 }
 
+export interface PresignedUpload {
+  id: string;
+  uploadUrl: string;
+  objectKey: string;
+}
+
+export interface ProjectFileDescriptor {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  batesNumber: BatesNumber;
+  analysis: AnalysisData | null;
+  storageKey?: string;
+}
+
+export interface ProjectManifest {
+  projectName: string;
+  savedAt: string;
+  files: ProjectFileDescriptor[];
+  manifestKey?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'model';
