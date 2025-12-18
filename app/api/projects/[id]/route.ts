@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
-import type { Database } from '@/lib/database.types';
+import type { Database } from '@/types/database.types';
 
 // GET /api/projects/[id] - Get project with all documents
 export async function GET(
@@ -55,16 +55,16 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const body = await request.json();
-    const { name, description, batesCounter } = body as Partial<{
-      name: string;
-      description: string;
-      batesCounter: number;
-    }>;
+    const body = (await request.json()) as {
+      name?: string;
+      description?: string | null;
+      batesCounter?: number;
+    };
+    const { name, description, batesCounter } = body;
 
     const supabase = getSupabaseAdmin();
 
-    const updates: Database['public']['Tables']['projects']['Update'] = {};
+    const updates: Partial<Database['public']['Tables']['projects']['Update']> = {};
     if (name !== undefined) updates.name = name;
     if (description !== undefined) updates.description = description;
     if (batesCounter !== undefined) updates.bates_counter = batesCounter;
