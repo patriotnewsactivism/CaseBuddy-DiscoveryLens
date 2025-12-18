@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
+import type { Database } from '@/lib/database.types';
 
 // GET /api/documents/[id] - Get a single document
 export async function GET(
@@ -42,13 +43,27 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { analysis, status, errorMessage } = body;
+    const { analysis, status, errorMessage } = body as Partial<{
+      analysis: Database['public']['Tables']['documents']['Row']['analysis'];
+      status: Database['public']['Tables']['documents']['Row']['status'];
+      errorMessage: string;
+    }>;
 
     const supabase = getSupabaseAdmin();
 
-    const updates: any = {};
+    const updates: Database['public']['Tables']['documents']['Update'] = {};
+
     if (analysis !== undefined) updates.analysis = analysis;
-    if (status !== undefined) updates.status = status;
+    if (status !== undefined) {
+      if (status === 'processing' || status === 'complete' || status === 'failed') {
+        updates.status = status;
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid status value' },
+          { status: 400 }
+        );
+      }
+    }
     if (errorMessage !== undefined) updates.error_message = errorMessage;
 
     const { data: document, error } = await supabase
