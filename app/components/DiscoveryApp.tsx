@@ -1,10 +1,11 @@
 'use client';
 
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor } from '@/lib/types';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor, Project } from '@/lib/types';
 import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
 import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
+import { createProject, saveDocumentToCloud, updateDocumentAnalysis } from '@/lib/discoveryService';
 import FilePreview from '@/app/components/FilePreview';
 import ChatInterface from '@/app/components/ChatInterface';
 import BatesBadge from '@/app/components/BatesBadge';
@@ -38,13 +39,43 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastManifestKey, setLastManifestKey] = useState<string | null>(null);
-  
+
+  // Cloud Storage State
+  const [currentProject, setCurrentProject] = useState<Project | null>(null);
+  const [isInitializingProject, setIsInitializingProject] = useState(false);
+
   // Refs
   const dirInputRef = useRef<HTMLInputElement>(null);
 
   // Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+
+  // Initialize project on mount
+  useEffect(() => {
+    initializeProject();
+  }, []);
+
+  const initializeProject = async () => {
+    setIsInitializingProject(true);
+    try {
+      const timestamp = new Date().toISOString().split('T')[0];
+      const { project } = await createProject(
+        `Discovery ${timestamp}`,
+        'Created automatically',
+        BATES_PREFIX_DEFAULT
+      );
+      setCurrentProject(project);
+      setBatesCounter(project.bates_counter);
+      setProjectName(project.name);
+      console.log('Project initialized:', project);
+    } catch (error) {
+      console.error('Failed to initialize project:', error);
+      setSaveError('Failed to initialize cloud storage. Files will not be saved.');
+    } finally {
+      setIsInitializingProject(false);
+    }
+  };
 
   // --- Handlers ---
 
@@ -98,21 +129,51 @@ export default function App() {
 
   const processFileAnalysis = async (file: DiscoveryFile) => {
     try {
+      // Step 1: Save file to cloud storage first
+      if (currentProject) {
+        try {
+          const { documentId, storagePath, signedUrl } = await saveDocumentToCloud(file, currentProject.id);
+
+          // Update file with cloud storage info
+          setFiles(prev => prev.map(f => {
+            if (f.id === file.id) {
+              return { ...f, cloudDocumentId: documentId, storagePath, signedUrl };
+            }
+            return f;
+          }));
+        } catch (storageError) {
+          console.error(`Failed to save ${file.name} to cloud:`, storageError);
+          setSaveError(`Failed to save ${file.name} to cloud storage`);
+        }
+      }
+
+      // Step 2: Analyze the file
       const analysis: AnalysisData = await analyzeFile(file);
-      
+
+      // Step 3: Update local state
       setFiles(prev => prev.map(f => {
         if (f.id === file.id) {
           return { ...f, isProcessing: false, analysis };
         }
         return f;
       }));
+
+      // Step 4: Update analysis in cloud storage
+      if (currentProject && file.cloudDocumentId) {
+        try {
+          await updateDocumentAnalysis(file.cloudDocumentId, analysis);
+          console.log(`Analysis saved to cloud for ${file.name}`);
+        } catch (updateError) {
+          console.error(`Failed to update analysis for ${file.name}:`, updateError);
+        }
+      }
     } catch (error) {
       console.error(`Failed to analyze ${file.name}`, error);
       setFiles(prev => prev.map(f => {
         if (f.id === file.id) {
-          return { 
-            ...f, 
-            isProcessing: false, 
+          return {
+            ...f,
+            isProcessing: false,
             analysis: {
                 summary: "Error processing file.",
                 evidenceType: "Unknown",
@@ -120,7 +181,7 @@ export default function App() {
                 dates: [],
                 relevantFacts: ["Analysis failed."],
                 transcription: "N/A"
-            } 
+            }
           };
         }
         return f;

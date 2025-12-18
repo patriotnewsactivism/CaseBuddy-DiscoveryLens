@@ -5,6 +5,55 @@ import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORI
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 /**
+ * Server-side function to transcribe audio/video files
+ * Optimized for lightweight transcription without heavy analysis
+ */
+export async function transcribeAudioServer({
+  base64Data,
+  mimeType,
+  fileName,
+  batesNumber,
+}: {
+  base64Data: string;
+  mimeType: string;
+  fileName: string;
+  batesNumber: string;
+}) {
+  const modelName = 'gemini-2.0-flash-exp';
+
+  const prompt = `
+    You are transcribing audio/video evidence for legal discovery.
+    Bates Number: ${batesNumber}
+    Filename: ${fileName}
+
+    INSTRUCTIONS:
+    - Provide a COMPLETE, ACCURATE, VERBATIM transcription of all spoken content
+    - Include speaker labels if multiple speakers are detected (e.g., "Speaker 1:", "Speaker 2:")
+    - Include timestamps in format [MM:SS] at regular intervals
+    - Note any significant non-verbal sounds in brackets [door slam], [phone rings], etc.
+    - Do NOT summarize or paraphrase - transcribe every word spoken
+    - If audio is unclear, mark as [inaudible]
+
+    Return ONLY the transcription text. Do not add commentary or analysis.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: modelName,
+    contents: {
+      parts: [
+        { inlineData: { data: base64Data, mimeType } },
+        { text: prompt }
+      ]
+    },
+    config: {
+      systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+    }
+  });
+
+  return response.text || '[Transcription failed]';
+}
+
+/**
  * Server-side function to analyze a file
  * Receives base64 data from client and sends to Gemini
  */
@@ -21,7 +70,23 @@ export async function analyzeFileServer({
   batesNumber: string;
   fileType: string;
 }) {
-  const modelName = 'gemini-3-flash-preview';
+  const modelName = 'gemini-2.0-flash-exp';
+
+  // For audio/video files, get transcription separately using the dedicated transcription function
+  let transcription = '';
+  if (fileType === 'AUDIO' || fileType === 'VIDEO') {
+    try {
+      transcription = await transcribeAudioServer({
+        base64Data,
+        mimeType,
+        fileName,
+        batesNumber,
+      });
+    } catch (error) {
+      console.error('Transcription failed:', error);
+      transcription = '[Transcription unavailable]';
+    }
+  }
 
   const prompt = `
     Analyze this discovery file.
@@ -29,9 +94,14 @@ export async function analyzeFileServer({
     Filename: ${fileName}.
     File Type: ${fileType}.
 
-    CRITICAL INSTRUCTION:
-    If this is an AUDIO or VIDEO file, provide a detailed, timestamped (if possible) transcription in the "transcription" field.
-    Classify the "evidenceType" accurately from the provided list.
+    ${transcription ? `TRANSCRIPTION:\n${transcription}\n\n` : ''}
+
+    INSTRUCTIONS:
+    - Extract key facts, entities, dates, and relevant legal information
+    - Classify the "evidenceType" accurately from the provided list
+    - Provide a concise summary of the content
+    - Identify sentiment/tone if applicable
+    ${!transcription && (fileType === 'AUDIO' || fileType === 'VIDEO') ? '- For audio/video without transcription, describe what you can observe' : ''}
   `;
 
   const schema: Schema = {
@@ -63,7 +133,14 @@ export async function analyzeFileServer({
     }
   });
 
-  return JSON.parse(response.text || '{}');
+  const analysisResult = JSON.parse(response.text || '{}');
+
+  // Ensure transcription is included in the result
+  if (transcription && !analysisResult.transcription) {
+    analysisResult.transcription = transcription;
+  }
+
+  return analysisResult;
 }
 
 /**
@@ -113,7 +190,7 @@ export async function chatWithDiscoveryServer(
   contentParts.push({ text: `\nUSER QUESTION: ${query}` });
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-2.0-flash-exp',
     contents: { parts: contentParts },
     config: { systemInstruction: SYSTEM_INSTRUCTION_CHAT }
   });

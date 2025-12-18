@@ -33,6 +33,10 @@ export interface DiscoveryFile {
   analysis: AnalysisData | null;
   base64Data?: string; // Cache for API calls
   mimeType: string;
+  // Cloud storage fields
+  cloudDocumentId?: string; // Document ID in Supabase
+  storagePath?: string; // Path in Supabase Storage
+  signedUrl?: string; // Signed URL for accessing file
 }
 
 export interface PresignedUpload {
@@ -71,4 +75,33 @@ export enum ViewMode {
   EVIDENCE_VIEWER = 'EVIDENCE_VIEWER',
   TIMELINE = 'TIMELINE',
   CLI = 'CLI'
+}
+
+// Cloud database types
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  bates_prefix: string;
+  bates_counter: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CloudDocument {
+  id: string;
+  project_id: string;
+  name: string;
+  mime_type: string;
+  file_type: string;
+  file_size?: number;
+  bates_prefix: string;
+  bates_number: number;
+  bates_formatted: string;
+  storage_path: string;
+  analysis?: AnalysisData;
+  status: 'processing' | 'complete' | 'failed';
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
 }
