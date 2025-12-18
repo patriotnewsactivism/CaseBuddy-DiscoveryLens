@@ -53,7 +53,16 @@ export async function PATCH(
 
     const updates: Partial<Database['public']['Tables']['documents']['Update']> = {};
     if (analysis !== undefined) updates.analysis = analysis;
-    if (status !== undefined) updates.status = status;
+    if (status !== undefined) {
+      if (status === 'processing' || status === 'complete' || status === 'failed') {
+        updates.status = status;
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid status value' },
+          { status: 400 }
+        );
+      }
+    }
     if (errorMessage !== undefined) updates.error_message = errorMessage;
 
     const { data: document, error } = await supabase
