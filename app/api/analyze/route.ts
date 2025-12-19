@@ -6,7 +6,7 @@ export const maxDuration = 300; // 5 minutes for long file analysis
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { base64Data, mimeType, fileName, batesNumber, fileType } = body;
+    const { base64Data, mimeType, fileName, batesNumber, fileType, casePerspective } = body;
 
     // Validate required fields
     if (!base64Data || !mimeType) {
@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
       fileName: fileName || 'Unknown',
       batesNumber: batesNumber || 'UNKNOWN',
       fileType: fileType || 'DOCUMENT',
+      casePerspective,
     });
 
     return NextResponse.json(analysis);
