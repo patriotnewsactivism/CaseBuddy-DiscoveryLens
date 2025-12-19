@@ -2,7 +2,7 @@
 
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor, Project } from '@/lib/types';
+import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor, Project, CasePerspective } from '@/lib/types';
 import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
 import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
 import { createProject, saveDocumentToCloud, updateDocumentAnalysis } from '@/lib/discoveryService';
@@ -39,6 +39,7 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastManifestKey, setLastManifestKey] = useState<string | null>(null);
+  const [casePerspective, setCasePerspective] = useState<CasePerspective>(CasePerspective.CLIENT);
 
   // Cloud Storage State
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
@@ -50,6 +51,12 @@ export default function App() {
   // Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+
+  const perspectiveOptions = [
+    { value: CasePerspective.CLIENT, label: 'My matter', hint: 'Assess hostile/friendly to me' },
+    { value: CasePerspective.DEFENSE_SUPPORT, label: 'Supporting defendant', hint: 'Flag items harming defense' },
+    { value: CasePerspective.PLAINTIFF_SUPPORT, label: 'Supporting plaintiff', hint: 'Flag items harming plaintiff' },
+  ];
 
   // Initialize project on mount
   useEffect(() => {
@@ -79,7 +86,7 @@ export default function App() {
 
   // --- Handlers ---
 
-  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = event.target.files;
     if (!uploadedFiles) return;
 
@@ -124,8 +131,7 @@ export default function App() {
 
     // Trigger analysis for each file independently in parallel
     newFiles.forEach(f => processFileAnalysis(f));
-
-  }, [batesCounter]);
+  };
 
   const processFileAnalysis = async (file: DiscoveryFile) => {
     try {
@@ -148,7 +154,7 @@ export default function App() {
       }
 
       // Step 2: Analyze the file
-      const analysis: AnalysisData = await analyzeFile(file);
+      const analysis: AnalysisData = await analyzeFile(file, casePerspective);
 
       // Step 3: Update local state
       setFiles(prev => prev.map(f => {
@@ -208,7 +214,7 @@ export default function App() {
 
     try {
       const activeId = viewMode === ViewMode.EVIDENCE_VIEWER ? selectedFileId : null;
-      const responseText = await chatWithDiscovery(text, files, activeId);
+      const responseText = await chatWithDiscovery(text, files, activeId, casePerspective);
       const responseMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'model',
@@ -277,6 +283,7 @@ export default function App() {
 
       const manifestPayload = {
         projectName: projectName.trim(),
+        casePerspective,
         files: files.map<ProjectFileDescriptor>(f => {
           const upload = uploadMap.get(f.id);
           return {
@@ -310,7 +317,7 @@ export default function App() {
     } finally {
       setIsSavingProject(false);
     }
-  }, [files, projectName]);
+  }, [files, projectName, casePerspective]);
 
   const triggerHunt = () => {
     dirInputRef.current?.click();
@@ -354,7 +361,7 @@ export default function App() {
       />
 
       {/* Header */}
-      <header className="bg-slate-900 text-white px-4 md:px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shadow-md z-10 shrink-0">
+      <header className="bg-slate-900 text-white px-4 md:px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shadow-md z-10 shrink-0 sticky top-0">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-indigo-500 rounded flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
@@ -410,11 +417,30 @@ export default function App() {
                {saveError && <span className="text-amber-200">{saveError}</span>}
              </div>
            </div>
+           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 w-full">
+             <span className="text-[11px] uppercase font-semibold text-slate-300">Case perspective</span>
+             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full sm:w-auto">
+               {perspectiveOptions.map(option => (
+                 <button
+                   key={option.value}
+                   onClick={() => setCasePerspective(option.value)}
+                   className={`flex flex-col items-start px-3 py-2 rounded border text-left transition-all ${
+                     casePerspective === option.value
+                       ? 'bg-indigo-600 border-indigo-400 text-white shadow'
+                       : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                   }`}
+                 >
+                   <span className="text-xs font-semibold">{option.label}</span>
+                   <span className="text-[11px] text-slate-200/80">{option.hint}</span>
+                 </button>
+               ))}
+             </div>
+           </div>
         </div>
       </header>
 
       {/* Mobile navigation */}
-      <div className="md:hidden bg-white border-b border-slate-200 flex justify-between px-2 py-2 gap-2">
+      <div className="md:hidden bg-white border-b border-slate-200 flex justify-between px-2 py-2 gap-2 sticky top-[64px] z-10">
         {[
           { key: 'files', label: 'Files' },
           { key: 'content', label: 'Workspace' },

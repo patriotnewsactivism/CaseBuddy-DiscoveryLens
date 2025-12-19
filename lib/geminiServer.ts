@@ -63,12 +63,14 @@ export async function analyzeFileServer({
   fileName,
   batesNumber,
   fileType,
+  casePerspective,
 }: {
   base64Data: string;
   mimeType: string;
   fileName: string;
   batesNumber: string;
   fileType: string;
+  casePerspective?: string;
 }) {
   const modelName = 'gemini-2.0-flash-exp';
 
@@ -88,11 +90,19 @@ export async function analyzeFileServer({
     }
   }
 
+  const perspectiveText =
+    casePerspective === 'defense_support'
+      ? 'You are assisting defense counsel. A "hostile" sentiment means it harms the defense; "cooperative" means it supports the defense.'
+      : casePerspective === 'plaintiff_support'
+        ? 'You are assisting a plaintiff/litigator. A "hostile" sentiment means it harms the plaintiff; "cooperative" means it supports the plaintiff.'
+        : 'You are reviewing materials in your own matter. Treat sentiment as friendly/hostile relative to the user.';
+
   const prompt = `
     Analyze this discovery file.
     Bates Number: ${batesNumber}.
     Filename: ${fileName}.
     File Type: ${fileType}.
+    Case Perspective: ${perspectiveText}
 
     ${transcription ? `TRANSCRIPTION:\n${transcription}\n\n` : ''}
 
@@ -161,7 +171,8 @@ export async function chatWithDiscoveryServer(
     transcription?: string;
     base64Data?: string;
     mimeType?: string;
-  }
+  },
+  casePerspective?: string
 ) {
   // Build context from all file summaries
   let contextString = 'Here is the summary of the discovery files available:\n';
@@ -172,7 +183,17 @@ export async function chatWithDiscoveryServer(
     contextString += `Key Facts: ${f.relevantFacts.join('; ')}\n`;
   });
 
-  const contentParts: any[] = [{ text: contextString }];
+  const perspectiveText =
+    casePerspective === 'defense_support'
+      ? 'You are assisting defense counsel; highlight items that harm the defense as hostile and items that support the defense as cooperative.'
+      : casePerspective === 'plaintiff_support'
+        ? 'You are assisting a plaintiff/litigator; treat items harmful to the plaintiff as hostile and those supporting the plaintiff as cooperative.'
+        : 'You are reviewing materials in your own case; align hostility/friendliness to the user perspective.';
+
+  const contentParts: any[] = [
+    { text: `CASE PERSPECTIVE: ${perspectiveText}` },
+    { text: contextString },
+  ];
 
   // If viewing a specific file, add its detailed info
   if (activeFile) {

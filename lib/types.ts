@@ -22,6 +22,12 @@ export interface AnalysisData {
   sentiment?: 'Hostile' | 'Cooperative' | 'Neutral';
 }
 
+export enum CasePerspective {
+  CLIENT = 'client',
+  DEFENSE_SUPPORT = 'defense_support',
+  PLAINTIFF_SUPPORT = 'plaintiff_support',
+}
+
 export interface DiscoveryFile {
   id: string;
   file: File;
@@ -60,6 +66,7 @@ export interface ProjectManifest {
   savedAt: string;
   files: ProjectFileDescriptor[];
   manifestKey?: string;
+  casePerspective?: CasePerspective;
 }
 
 export interface ChatMessage {

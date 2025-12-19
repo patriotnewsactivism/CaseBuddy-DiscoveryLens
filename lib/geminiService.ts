@@ -1,4 +1,4 @@
-import { DiscoveryFile } from './types';
+import { CasePerspective, DiscoveryFile } from './types';
 
 /**
  * Converts a File object to Base64 string (client-side only)
@@ -19,7 +19,10 @@ export const fileToBase64 = async (file: File): Promise<string> => {
  * Analyzes a file by sending base64 to Next.js API route
  * The API route securely calls Gemini with the server-side API key
  */
-export const analyzeFile = async (discoveryFile: DiscoveryFile): Promise<any> => {
+export const analyzeFile = async (
+  discoveryFile: DiscoveryFile,
+  casePerspective: CasePerspective
+): Promise<any> => {
   // Convert file to base64 in the browser
   const base64Data = await fileToBase64(discoveryFile.file);
 
@@ -33,6 +36,7 @@ export const analyzeFile = async (discoveryFile: DiscoveryFile): Promise<any> =>
       fileName: discoveryFile.name,
       batesNumber: discoveryFile.batesNumber.formatted,
       fileType: discoveryFile.type,
+      casePerspective,
     }),
   });
 
@@ -51,7 +55,8 @@ export const analyzeFile = async (discoveryFile: DiscoveryFile): Promise<any> =>
 export const chatWithDiscovery = async (
   query: string,
   allFiles: DiscoveryFile[],
-  activeFileId: string | null
+  activeFileId: string | null,
+  casePerspective: CasePerspective
 ): Promise<string> => {
   // Build simplified context (summaries only, no large files)
   const filesContext = allFiles
@@ -91,6 +96,7 @@ export const chatWithDiscovery = async (
       query,
       filesContext,
       activeFile,
+      casePerspective,
     }),
   });
 

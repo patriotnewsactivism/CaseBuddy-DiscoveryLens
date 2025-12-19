@@ -6,7 +6,7 @@ export const maxDuration = 300; // 5 minutes for complex queries
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { query, filesContext, activeFile } = body;
+    const { query, filesContext, activeFile, casePerspective } = body;
 
     // Validate query
     if (!query || typeof query !== 'string') {
@@ -20,7 +20,8 @@ export async function POST(request: NextRequest) {
     const response = await chatWithDiscoveryServer(
       query,
       filesContext || [],
-      activeFile
+      activeFile,
+      casePerspective
     );
 
     return NextResponse.json({ response });

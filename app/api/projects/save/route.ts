@@ -5,7 +5,7 @@ import { normalizeProjectName } from '@/lib/storageUtils';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { projectName, files } = body;
+    const { projectName, files, casePerspective } = body;
 
     if (!projectName || typeof projectName !== 'string') {
       return NextResponse.json({ error: 'projectName is required.' }, { status: 400 });
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
       savedAt: new Date().toISOString(),
       files,
       manifestKey,
+      casePerspective,
     };
 
     const config = getStorageConfig();
