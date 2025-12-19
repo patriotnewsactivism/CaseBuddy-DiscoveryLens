@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { DiscoveryFile, FileType } from '@/lib/types';
 import BatesBadge from './BatesBadge';
 
@@ -15,8 +16,16 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
     switch (file.type) {
       case FileType.IMAGE:
         return (
-          <div className="flex justify-center items-center h-full bg-slate-900">
-            <img src={file.previewUrl} alt={file.name} className="max-h-full max-w-full object-contain" />
+          <div className="flex justify-center items-center h-full bg-slate-900 relative">
+            <Image
+              src={file.previewUrl}
+              alt={file.name}
+              fill
+              className="object-contain"
+              sizes="100vw"
+              unoptimized
+              priority
+            />
           </div>
         );
       case FileType.VIDEO:

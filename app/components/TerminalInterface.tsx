@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { DiscoveryFile, ViewMode } from '@/lib/types';
 
 interface TerminalInterfaceProps {
@@ -33,20 +33,24 @@ const TerminalInterface: React.FC<TerminalInterfaceProps> = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const addLog = useCallback((type: LogEntry['type'], content: React.ReactNode) => {
+    setHistory(prev => [...prev, { type, content }]);
+  }, []);
+
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [history]);
 
   // Effect to show live processing status
   useEffect(() => {
-    if (isScanning) {
-       addLog('system', 'SCANNER: Accessing local file handles...');
-    }
-  }, [isScanning]);
+    if (!isScanning) return;
 
-  const addLog = (type: LogEntry['type'], content: React.ReactNode) => {
-    setHistory(prev => [...prev, { type, content }]);
-  };
+    const timeout = setTimeout(() => {
+      addLog('system', 'SCANNER: Accessing local file handles...');
+    }, 0);
+
+    return () => clearTimeout(timeout);
+  }, [addLog, isScanning]);
 
   const handleCommand = (cmd: string) => {
     const parts = cmd.trim().split(' ');

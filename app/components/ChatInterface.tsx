@@ -51,11 +51,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
             <h3 className="text-lg font-serif text-slate-600 mb-2">Discovery Assistant</h3>
             <p className="text-sm">Ask questions about inconsistencies, timelines, or specific evidence.</p>
             <div className="mt-6 grid grid-cols-1 gap-2 max-w-xs mx-auto">
-              <button onClick={() => onSendMessage("Create a chronological timeline of events.")} className="text-xs bg-white border border-slate-200 p-2 rounded hover:bg-indigo-50 text-left transition-colors">
-                "Create a timeline of events."
+              <button onClick={() => onSendMessage('Create a chronological timeline of events.')} className="text-xs bg-white border border-slate-200 p-2 rounded hover:bg-indigo-50 text-left transition-colors">
+                &ldquo;Create a timeline of events.&rdquo;
               </button>
-              <button onClick={() => onSendMessage("Are there any contradictions in the witness statements?")} className="text-xs bg-white border border-slate-200 p-2 rounded hover:bg-indigo-50 text-left transition-colors">
-                "Are there contradictions?"
+              <button onClick={() => onSendMessage('Are there any contradictions in the witness statements?')} className="text-xs bg-white border border-slate-200 p-2 rounded hover:bg-indigo-50 text-left transition-colors">
+                &ldquo;Are there contradictions?&rdquo;
               </button>
             </div>
           </div>

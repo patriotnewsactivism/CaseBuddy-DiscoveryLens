@@ -60,7 +60,7 @@ const Timeline: React.FC<TimelineProps> = ({ files, onSelectFile }) => {
               <p className="text-slate-700">{event.description}</p>
               {event.file.analysis?.summary && (
                 <p className="text-xs text-slate-500 mt-2 line-clamp-2 italic">
-                  "{event.file.analysis.summary}"
+                  &ldquo;{event.file.analysis.summary}&rdquo;
                 </p>
               )}
             </div>

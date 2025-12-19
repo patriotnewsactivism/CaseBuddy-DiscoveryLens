@@ -41,14 +41,6 @@ export async function transcribeAudioServer({
   batesNumber,
   isBase64 = true,
 }: TranscribeInput) {
-  const modelName = 'gemini-2.0-flash-exp';
-
-}: {
-  base64Data: string;
-  mimeType: string;
-  fileName: string;
-  batesNumber: string;
-}) {
   const prompt = `
     You are transcribing audio/video evidence for legal discovery.
     Bates Number: ${batesNumber}
@@ -68,35 +60,22 @@ export async function transcribeAudioServer({
   const sourceBuffer = typeof input === 'string' && isBase64 ? Buffer.from(input, 'base64') : Buffer.from(input as Buffer);
   const { audioBuffer, audioMimeType } = await transcodeToMonoWav({ inputBuffer: sourceBuffer, mimeType });
 
-  const response = await ai.models.generateContent({
-    model: modelName,
-    contents: {
-      parts: [
-        { inlineData: { data: audioBuffer.toString('base64'), mimeType: audioMimeType } },
-        { text: prompt }
-      ]
-    },
-    config: {
-      systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
-      maxOutputTokens: 2048,
-      outputAudioConfig: undefined,
-      topK: 32,
-      topP: 0.95,
-      temperature: 0.3,
-      responseMimeType: 'text/plain',
-    }
-  });
   const response = await withModelFallback(TRANSCRIBE_MODEL, async chosenModel =>
     ai.models.generateContent({
       model: chosenModel,
       contents: {
         parts: [
-          { inlineData: { data: base64Data, mimeType } },
+          { inlineData: { data: audioBuffer.toString('base64'), mimeType: audioMimeType } },
           { text: prompt }
         ]
       },
       config: {
         systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+        responseMimeType: 'text/plain',
+        maxOutputTokens: 2048,
+        topK: 32,
+        topP: 0.95,
+        temperature: 0.3,
       }
     })
   );
