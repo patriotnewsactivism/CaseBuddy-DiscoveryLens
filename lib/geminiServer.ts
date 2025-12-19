@@ -1,8 +1,21 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
+import { transcodeToMonoWav } from './mediaTranscoder';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
+interface TranscribeInput {
+  input: Buffer | string;
+  mimeType: string;
+  fileName: string;
+  batesNumber: string;
+  isBase64?: boolean;
+}
+
+/**
+ * Server-side function to transcribe audio/video files
+ * Optimized for lightweight transcription without heavy analysis
+ */
 const ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.0-pro-exp-02-05';
 const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || ANALYSIS_MODEL;
 const TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.0-flash-001';
@@ -22,10 +35,14 @@ const withModelFallback = async <T>(
 };
 
 export async function transcribeAudioServer({
-  base64Data,
+  input,
   mimeType,
   fileName,
   batesNumber,
+  isBase64 = true,
+}: TranscribeInput) {
+  const modelName = 'gemini-2.0-flash-exp';
+
 }: {
   base64Data: string;
   mimeType: string;
@@ -48,6 +65,27 @@ export async function transcribeAudioServer({
     Return ONLY the transcription text. Do not add commentary or analysis.
   `;
 
+  const sourceBuffer = typeof input === 'string' && isBase64 ? Buffer.from(input, 'base64') : Buffer.from(input as Buffer);
+  const { audioBuffer, audioMimeType } = await transcodeToMonoWav({ inputBuffer: sourceBuffer, mimeType });
+
+  const response = await ai.models.generateContent({
+    model: modelName,
+    contents: {
+      parts: [
+        { inlineData: { data: audioBuffer.toString('base64'), mimeType: audioMimeType } },
+        { text: prompt }
+      ]
+    },
+    config: {
+      systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+      maxOutputTokens: 2048,
+      outputAudioConfig: undefined,
+      topK: 32,
+      topP: 0.95,
+      temperature: 0.3,
+      responseMimeType: 'text/plain',
+    }
+  });
   const response = await withModelFallback(TRANSCRIBE_MODEL, async chosenModel =>
     ai.models.generateContent({
       model: chosenModel,
@@ -91,10 +129,11 @@ export async function analyzeFileServer({
   if (!textContent && (fileType === 'AUDIO' || fileType === 'VIDEO') && base64Data && mimeType) {
     try {
       transcription = await transcribeAudioServer({
-        base64Data,
+        input: base64Data,
         mimeType,
         fileName,
         batesNumber,
+        isBase64: true,
       });
     } catch (error) {
       console.error('Transcription failed:', error);
