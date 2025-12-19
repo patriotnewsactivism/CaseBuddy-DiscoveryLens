@@ -1,4 +1,4 @@
-import fileType from 'file-type';
+import { fileTypeFromBuffer } from 'file-type';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import { lookup as mimeLookup } from 'mime-types';
@@ -40,7 +40,7 @@ export const chunkText = (text: string, size: number = DEFAULT_CHUNK_SIZE): stri
 
 const detectMimeType = async (buffer: Buffer, provided?: string, fileName?: string) => {
   if (provided) return provided;
-  const detected = await fileType.fromBuffer(buffer);
+  const detected = await fileTypeFromBuffer(buffer);
   if (detected?.mime) return detected.mime;
   if (fileName) {
     const mime = mimeLookup(fileName);
