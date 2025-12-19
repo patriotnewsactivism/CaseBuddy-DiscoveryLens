@@ -24,3 +24,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/15dMUw2d8YVa0Z564KGHLU5
      - `CLOUD_STORAGE_FORCE_PATH_STYLE` (set to `true` for providers that require path-style URLs)
 3. Run the app:
    `npm run dev`
+
+## Firebase deployment (optional)
+
+If you prefer to run DiscoveryLens on Firebase/Google Cloud instead of Supabase, follow [FIREBASE_SETUP.md](FIREBASE_SETUP.md) for a complete, security-focused checklist that covers Firestore, Storage, Cloud Functions, Cloud Run (FFmpeg), and Algolia indexing. Keep all keys in Firebase config or server-side environments; never expose admin credentials to the client.
