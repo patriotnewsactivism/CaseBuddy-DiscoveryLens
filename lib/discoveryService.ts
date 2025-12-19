@@ -15,7 +15,11 @@ export async function createProject(name: string, description?: string, batesPre
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to create project');
+    const errorMessage =
+      typeof error === 'object' && error !== null
+        ? error.details || error.error
+        : undefined;
+    throw new Error(errorMessage || 'Failed to create project');
   }
 
   return response.json();
