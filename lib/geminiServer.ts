@@ -1,8 +1,12 @@
-import { GoogleGenAI, Type, Schema } from '@google/genai';
+import { GoogleGenAI, Schema, Type } from '@google/genai';
 import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
 import { transcodeToMonoWav } from './mediaTranscoder';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+
+const ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.0-pro-exp-02-05';
+const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || ANALYSIS_MODEL;
+const TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.0-flash-001';
 
 interface TranscribeInput {
   input: Buffer | string;
@@ -12,13 +16,34 @@ interface TranscribeInput {
   isBase64?: boolean;
 }
 
-/**
- * Server-side function to transcribe audio/video files
- * Optimized for lightweight transcription without heavy analysis
- */
-const ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.0-pro-exp-02-05';
-const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || ANALYSIS_MODEL;
-const TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.0-flash-001';
+interface AnalyzeInput {
+  base64Data?: string;
+  mimeType?: string;
+  fileName: string;
+  batesNumber: string;
+  fileType: string;
+  casePerspective?: string;
+  textContent?: string;
+  textChunks?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+interface ChatFileContext {
+  batesNumber: string;
+  name: string;
+  evidenceType: string;
+  summary: string;
+  relevantFacts: string[];
+}
+
+interface ActiveFileContext {
+  batesNumber: string;
+  transcription?: string;
+  base64Data?: string;
+  mimeType?: string;
+}
+
+type ContentPart = { text?: string; inlineData?: { data: string; mimeType: string } };
 
 const withModelFallback = async <T>(
   model: string,
@@ -41,62 +66,39 @@ export async function transcribeAudioServer({
   batesNumber,
   isBase64 = true,
 }: TranscribeInput) {
-  const modelName = 'gemini-2.0-flash-exp';
-
-}: {
-  base64Data: string;
-  mimeType: string;
-  fileName: string;
-  batesNumber: string;
-}) {
   const prompt = `
-    You are transcribing audio/video evidence for legal discovery.
-    Bates Number: ${batesNumber}
-    Filename: ${fileName}
+      You are transcribing audio/video evidence for legal discovery.
+      Bates Number: ${batesNumber}
+      Filename: ${fileName}
 
-    INSTRUCTIONS:
-    - Provide a COMPLETE, ACCURATE, VERBATIM transcription of all spoken content
-    - Include speaker labels if multiple speakers are detected (e.g., "Speaker 1:", "Speaker 2:")
-    - Include timestamps in format [MM:SS] at regular intervals
-    - Note any significant non-verbal sounds in brackets [door slam], [phone rings], etc.
-    - Do NOT summarize or paraphrase - transcribe every word spoken
-    - If audio is unclear, mark as [inaudible]
+      INSTRUCTIONS:
+      - Provide a COMPLETE, ACCURATE, VERBATIM transcription of all spoken content
+      - Include speaker labels if multiple speakers are detected (e.g., "Speaker 1:", "Speaker 2:")
+      - Include timestamps in format [MM:SS] at regular intervals
+      - Note any significant non-verbal sounds in brackets [door slam], [phone rings], etc.
+      - Do NOT summarize or paraphrase - transcribe every word spoken
+      - If audio is unclear, mark as [inaudible]
 
-    Return ONLY the transcription text. Do not add commentary or analysis.
-  `;
+      Return ONLY the transcription text. Do not add commentary or analysis.
+    `;
 
-  const sourceBuffer = typeof input === 'string' && isBase64 ? Buffer.from(input, 'base64') : Buffer.from(input as Buffer);
+  const sourceBuffer =
+    typeof input === 'string' && isBase64 ? Buffer.from(input, 'base64') : Buffer.from(input as Buffer);
   const { audioBuffer, audioMimeType } = await transcodeToMonoWav({ inputBuffer: sourceBuffer, mimeType });
 
-  const response = await ai.models.generateContent({
-    model: modelName,
-    contents: {
-      parts: [
-        { inlineData: { data: audioBuffer.toString('base64'), mimeType: audioMimeType } },
-        { text: prompt }
-      ]
-    },
-    config: {
-      systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
-      maxOutputTokens: 2048,
-      outputAudioConfig: undefined,
-      topK: 32,
-      topP: 0.95,
-      temperature: 0.3,
-      responseMimeType: 'text/plain',
-    }
-  });
   const response = await withModelFallback(TRANSCRIBE_MODEL, async chosenModel =>
     ai.models.generateContent({
       model: chosenModel,
       contents: {
         parts: [
-          { inlineData: { data: base64Data, mimeType } },
+          { inlineData: { data: audioBuffer.toString('base64'), mimeType: audioMimeType } },
           { text: prompt }
         ]
       },
       config: {
-        systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+        systemInstruction:
+          'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+        responseMimeType: 'text/plain',
       }
     })
   );
@@ -114,17 +116,7 @@ export async function analyzeFileServer({
   textContent,
   textChunks,
   metadata,
-}: {
-  base64Data?: string;
-  mimeType?: string;
-  fileName: string;
-  batesNumber: string;
-  fileType: string;
-  casePerspective?: string;
-  textContent?: string;
-  textChunks?: string[];
-  metadata?: Record<string, unknown>;
-}) {
+}: AnalyzeInput) {
   let transcription = '';
   if (!textContent && (fileType === 'AUDIO' || fileType === 'VIDEO') && base64Data && mimeType) {
     try {
@@ -148,7 +140,7 @@ export async function analyzeFileServer({
         ? 'You are assisting a plaintiff/litigator. A "hostile" sentiment means it harms the plaintiff; "cooperative" means it supports the plaintiff.'
         : 'You are reviewing materials in your own matter. Treat sentiment as friendly/hostile relative to the user.';
 
-  const contentParts: any[] = [
+  const contentParts: ContentPart[] = [
     { text: `Analyze this discovery file.\nBates Number: ${batesNumber}.\nFilename: ${fileName}.\nFile Type: ${fileType}.\nCase Perspective: ${perspectiveText}` },
   ];
 
@@ -170,7 +162,10 @@ export async function analyzeFileServer({
     contentParts.push({ inlineData: { data: base64Data, mimeType } });
   }
 
-  contentParts.push({ text: 'INSTRUCTIONS:\n- Extract key facts, entities, dates, and relevant legal information\n- Classify the "evidenceType" accurately from the provided list\n- Provide a concise summary of the content\n- Identify sentiment/tone if applicable' });
+  contentParts.push({
+    text: 'INSTRUCTIONS:\n- Extract key facts, entities, dates, and relevant legal information\n- Classify the "evidenceType" accurately from the provided list\n- Provide a concise summary of the content\n- Identify sentiment/tone if applicable',
+  });
+
   if (!transcription && (fileType === 'AUDIO' || fileType === 'VIDEO')) {
     contentParts.push({ text: '- For audio/video without transcription, describe observable details.' });
   }
@@ -186,7 +181,7 @@ export async function analyzeFileServer({
       transcription: { type: Type.STRING },
       sentiment: { type: Type.STRING, enum: ['Hostile', 'Cooperative', 'Neutral'] },
     },
-    required: ['summary', 'evidenceType', 'entities', 'relevantFacts']
+    required: ['summary', 'evidenceType', 'entities', 'relevantFacts'],
   };
 
   const response = await withModelFallback(ANALYSIS_MODEL, async chosenModel =>
@@ -201,7 +196,7 @@ export async function analyzeFileServer({
     })
   );
 
-  const analysisResult = JSON.parse(response.text || '{}');
+  const analysisResult = response.text ? JSON.parse(response.text) : {};
 
   if (transcription && !analysisResult.transcription) {
     analysisResult.transcription = transcription;
@@ -212,19 +207,8 @@ export async function analyzeFileServer({
 
 export async function chatWithDiscoveryServer(
   query: string,
-  filesContext: Array<{
-    batesNumber: string;
-    name: string;
-    evidenceType: string;
-    summary: string;
-    relevantFacts: string[];
-  }>,
-  activeFile?: {
-    batesNumber: string;
-    transcription?: string;
-    base64Data?: string;
-    mimeType?: string;
-  },
+  filesContext: ChatFileContext[],
+  activeFile?: ActiveFileContext,
   casePerspective?: string
 ) {
   let contextString = 'Here is the summary of the discovery files available:\n';
@@ -242,7 +226,7 @@ export async function chatWithDiscoveryServer(
         ? 'You are assisting a plaintiff/litigator; treat items harmful to the plaintiff as hostile and those supporting the plaintiff as cooperative.'
         : 'You are reviewing materials in your own case; align hostility/friendliness to the user perspective.';
 
-  const contentParts: any[] = [
+  const contentParts: ContentPart[] = [
     { text: `CASE PERSPECTIVE: ${perspectiveText}` },
     { text: contextString },
   ];
@@ -253,9 +237,7 @@ export async function chatWithDiscoveryServer(
     if (activeFile.transcription && activeFile.transcription.length > 50) {
       contentParts.push({ text: `TRANSCRIPTION OF VIEWED FILE:\n${activeFile.transcription}` });
     } else if (activeFile.base64Data && activeFile.mimeType) {
-      contentParts.push({
-        inlineData: { data: activeFile.base64Data, mimeType: activeFile.mimeType }
-      });
+      contentParts.push({ inlineData: { data: activeFile.base64Data, mimeType: activeFile.mimeType } });
     }
   }
 
