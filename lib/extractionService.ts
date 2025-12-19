@@ -1,5 +1,4 @@
 import { fileTypeFromBuffer } from 'file-type';
-import fileType from 'file-type';
 import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
@@ -59,18 +58,41 @@ const detectMimeType = async (buffer: Buffer, provided?: string, fileName?: stri
 };
 
 const extractFromPdf = async (buffer: Buffer) => {
-  const pdfParseImport = await import('pdf-parse');
-  const PDFParse = (pdfParseImport as any).PDFParse;
-  if (!PDFParse) {
-    throw new Error('PDF parser unavailable');
+  const canvas = await import('@napi-rs/canvas');
+  if (!(globalThis as any).DOMMatrix) {
+    (globalThis as any).DOMMatrix = canvas.DOMMatrix;
+  }
+  if (!(globalThis as any).DOMPoint) {
+    (globalThis as any).DOMPoint = canvas.DOMPoint;
+  }
+  if (!(globalThis as any).ImageData) {
+    (globalThis as any).ImageData = canvas.ImageData;
   }
 
-  const parser = new PDFParse({ data: buffer });
-  const data = await parser.getText();
-  if (typeof parser.destroy === 'function') {
-    await parser.destroy();
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const { getDocument, GlobalWorkerOptions } = pdfjs as any;
+
+  if (GlobalWorkerOptions && !GlobalWorkerOptions.workerSrc) {
+    GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.mjs', import.meta.url).toString();
   }
-  return normalizeText(data.text || '');
+
+  const loadingTask = getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+
+  try {
+    let combined = '';
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const strings = content.items.map((item: any) => item.str || '').join(' ');
+      combined += `${strings}\n`;
+    }
+
+    return normalizeText(combined);
+  } finally {
+    await pdf.cleanup();
+    loadingTask.destroy();
+  }
 };
 
 const extractFromDocx = async (buffer: Buffer) => {
