@@ -1,8 +1,5 @@
 import { CasePerspective, DiscoveryFile } from './types';
 
-/**
- * Converts a File object to Base64 string (client-side only)
- */
 export const fileToBase64 = async (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -15,23 +12,31 @@ export const fileToBase64 = async (file: File): Promise<string> => {
   });
 };
 
-/**
- * Analyzes a file by sending base64 to Next.js API route
- * The API route securely calls Gemini with the server-side API key
- */
+const extractClientText = async (file: File, mimeType: string): Promise<string | undefined> => {
+  const textualMime = mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml') || mimeType.includes('html');
+  if (!textualMime) return undefined;
+
+  try {
+    const text = await file.text();
+    return text;
+  } catch {
+    return undefined;
+  }
+};
+
 export const analyzeFile = async (
   discoveryFile: DiscoveryFile,
   casePerspective: CasePerspective
 ): Promise<any> => {
-  // Convert file to base64 in the browser
-  const base64Data = await fileToBase64(discoveryFile.file);
+  const extractedText = await extractClientText(discoveryFile.file, discoveryFile.mimeType);
+  const base64Data = extractedText ? undefined : await fileToBase64(discoveryFile.file);
 
-  // Send to API route (which has access to the API key)
   const response = await fetch('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       base64Data,
+      extractedText,
       mimeType: discoveryFile.mimeType,
       fileName: discoveryFile.name,
       batesNumber: discoveryFile.batesNumber.formatted,
@@ -48,17 +53,12 @@ export const analyzeFile = async (
   return response.json();
 };
 
-/**
- * Chat with discovery context via API route
- * The API route securely calls Gemini with the server-side API key
- */
 export const chatWithDiscovery = async (
   query: string,
   allFiles: DiscoveryFile[],
   activeFileId: string | null,
   casePerspective: CasePerspective
 ): Promise<string> => {
-  // Build simplified context (summaries only, no large files)
   const filesContext = allFiles
     .filter(f => f.analysis)
     .map(f => ({
@@ -69,7 +69,6 @@ export const chatWithDiscovery = async (
       relevantFacts: f.analysis!.relevantFacts,
     }));
 
-  // If viewing a specific file, prepare its data
   let activeFile = undefined;
   if (activeFileId) {
     const file = allFiles.find(f => f.id === activeFileId);
@@ -79,7 +78,6 @@ export const chatWithDiscovery = async (
         transcription: file.analysis?.transcription,
       };
 
-      // If no transcription available, send the file itself as base64
       if (!activeFile.transcription || activeFile.transcription.length < 50) {
         const base64Data = await fileToBase64(file.file);
         (activeFile as any).base64Data = base64Data;
@@ -88,7 +86,6 @@ export const chatWithDiscovery = async (
     }
   }
 
-  // Send to API route
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
