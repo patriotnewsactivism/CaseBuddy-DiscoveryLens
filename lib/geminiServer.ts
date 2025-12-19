@@ -1,24 +1,29 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
+import { transcodeToMonoWav } from './mediaTranscoder';
 
 // Initialize with server-side API key (only available on server)
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+
+interface TranscribeInput {
+  input: Buffer | string;
+  mimeType: string;
+  fileName: string;
+  batesNumber: string;
+  isBase64?: boolean;
+}
 
 /**
  * Server-side function to transcribe audio/video files
  * Optimized for lightweight transcription without heavy analysis
  */
 export async function transcribeAudioServer({
-  base64Data,
+  input,
   mimeType,
   fileName,
   batesNumber,
-}: {
-  base64Data: string;
-  mimeType: string;
-  fileName: string;
-  batesNumber: string;
-}) {
+  isBase64 = true,
+}: TranscribeInput) {
   const modelName = 'gemini-2.0-flash-exp';
 
   const prompt = `
@@ -37,16 +42,25 @@ export async function transcribeAudioServer({
     Return ONLY the transcription text. Do not add commentary or analysis.
   `;
 
+  const sourceBuffer = typeof input === 'string' && isBase64 ? Buffer.from(input, 'base64') : Buffer.from(input as Buffer);
+  const { audioBuffer, audioMimeType } = await transcodeToMonoWav({ inputBuffer: sourceBuffer, mimeType });
+
   const response = await ai.models.generateContent({
     model: modelName,
     contents: {
       parts: [
-        { inlineData: { data: base64Data, mimeType } },
+        { inlineData: { data: audioBuffer.toString('base64'), mimeType: audioMimeType } },
         { text: prompt }
       ]
     },
     config: {
       systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+      maxOutputTokens: 2048,
+      outputAudioConfig: undefined,
+      topK: 32,
+      topP: 0.95,
+      temperature: 0.3,
+      responseMimeType: 'text/plain',
     }
   });
 
@@ -79,10 +93,11 @@ export async function analyzeFileServer({
   if (fileType === 'AUDIO' || fileType === 'VIDEO') {
     try {
       transcription = await transcribeAudioServer({
-        base64Data,
+        input: base64Data,
         mimeType,
         fileName,
         batesNumber,
+        isBase64: true,
       });
     } catch (error) {
       console.error('Transcription failed:', error);
