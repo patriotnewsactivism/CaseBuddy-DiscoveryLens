@@ -15,9 +15,12 @@ View your app in AI Studio: https://ai.studio/apps/drive/15dMUw2d8YVa0Z564KGHLU5
 
 1. Install dependencies:
    `npm install`
-2. Copy [.env.example](.env.example) to `.env.local` and fill in:
+2. Copy [.env.example](.env.example) to `.env.local` and fill in your own credentials (do **not** use the placeholders):
    - `GEMINI_API_KEY` (Gemini API access)
    - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` (Supabase database + storage)
    - `CLOUD_STORAGE_BUCKET`, `CLOUD_STORAGE_REGION`, `CLOUD_STORAGE_ACCESS_KEY`, `CLOUD_STORAGE_SECRET_KEY` (S3-compatible storage for uploads/manifests)
+   - Optional S3 overrides for non-AWS providers:
+     - `CLOUD_STORAGE_ENDPOINT` (e.g., `https://storage.googleapis.com` for GCS interop)
+     - `CLOUD_STORAGE_FORCE_PATH_STYLE` (set to `true` for providers that require path-style URLs)
 3. Run the app:
    `npm run dev`

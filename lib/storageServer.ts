@@ -6,6 +6,8 @@ interface StorageConfig {
   region: string;
   accessKeyId: string;
   secretAccessKey: string;
+  endpoint?: string;
+  forcePathStyle?: boolean;
 }
 
 export const getStorageConfig = (): StorageConfig => {
@@ -13,17 +15,23 @@ export const getStorageConfig = (): StorageConfig => {
   const region = process.env.CLOUD_STORAGE_REGION;
   const accessKeyId = process.env.CLOUD_STORAGE_ACCESS_KEY;
   const secretAccessKey = process.env.CLOUD_STORAGE_SECRET_KEY;
+  const endpoint = process.env.CLOUD_STORAGE_ENDPOINT;
+  const forcePathStyleRaw = process.env.CLOUD_STORAGE_FORCE_PATH_STYLE;
+
+  const forcePathStyle = forcePathStyleRaw?.toLowerCase() === 'true';
 
   if (!bucket || !region || !accessKeyId || !secretAccessKey) {
     throw new Error('Missing cloud storage environment variables.');
   }
 
-  return { bucket, region, accessKeyId, secretAccessKey };
+  return { bucket, region, accessKeyId, secretAccessKey, endpoint, forcePathStyle };
 };
 
 export const createStorageClient = (config: StorageConfig) => {
   return new S3Client({
     region: config.region,
+    endpoint: config.endpoint,
+    forcePathStyle: config.forcePathStyle,
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
