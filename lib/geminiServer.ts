@@ -2,7 +2,6 @@ import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
 import { transcodeToMonoWav } from './mediaTranscoder';
 
-// Initialize with server-side API key (only available on server)
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 interface TranscribeInput {
@@ -17,6 +16,24 @@ interface TranscribeInput {
  * Server-side function to transcribe audio/video files
  * Optimized for lightweight transcription without heavy analysis
  */
+const ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.0-pro-exp-02-05';
+const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || ANALYSIS_MODEL;
+const TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.0-flash-001';
+
+const withModelFallback = async <T>(
+  model: string,
+  generator: (chosenModel: string) => Promise<T>,
+  fallbackModel = 'gemini-2.0-flash-thinking-exp-1219'
+): Promise<T> => {
+  try {
+    return await generator(model);
+  } catch (primaryError) {
+    console.warn(`Primary model ${model} failed, falling back to ${fallbackModel}:`, primaryError);
+    if (fallbackModel === model) throw primaryError;
+    return generator(fallbackModel);
+  }
+};
+
 export async function transcribeAudioServer({
   input,
   mimeType,
@@ -26,6 +43,12 @@ export async function transcribeAudioServer({
 }: TranscribeInput) {
   const modelName = 'gemini-2.0-flash-exp';
 
+}: {
+  base64Data: string;
+  mimeType: string;
+  fileName: string;
+  batesNumber: string;
+}) {
   const prompt = `
     You are transcribing audio/video evidence for legal discovery.
     Bates Number: ${batesNumber}
@@ -63,14 +86,24 @@ export async function transcribeAudioServer({
       responseMimeType: 'text/plain',
     }
   });
+  const response = await withModelFallback(TRANSCRIBE_MODEL, async chosenModel =>
+    ai.models.generateContent({
+      model: chosenModel,
+      contents: {
+        parts: [
+          { inlineData: { data: base64Data, mimeType } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+      }
+    })
+  );
 
   return response.text || '[Transcription failed]';
 }
 
-/**
- * Server-side function to analyze a file
- * Receives base64 data from client and sends to Gemini
- */
 export async function analyzeFileServer({
   base64Data,
   mimeType,
@@ -78,19 +111,22 @@ export async function analyzeFileServer({
   batesNumber,
   fileType,
   casePerspective,
+  textContent,
+  textChunks,
+  metadata,
 }: {
-  base64Data: string;
-  mimeType: string;
+  base64Data?: string;
+  mimeType?: string;
   fileName: string;
   batesNumber: string;
   fileType: string;
   casePerspective?: string;
+  textContent?: string;
+  textChunks?: string[];
+  metadata?: Record<string, unknown>;
 }) {
-  const modelName = 'gemini-2.0-flash-exp';
-
-  // For audio/video files, get transcription separately using the dedicated transcription function
   let transcription = '';
-  if (fileType === 'AUDIO' || fileType === 'VIDEO') {
+  if (!textContent && (fileType === 'AUDIO' || fileType === 'VIDEO') && base64Data && mimeType) {
     try {
       transcription = await transcribeAudioServer({
         input: base64Data,
@@ -112,22 +148,32 @@ export async function analyzeFileServer({
         ? 'You are assisting a plaintiff/litigator. A "hostile" sentiment means it harms the plaintiff; "cooperative" means it supports the plaintiff.'
         : 'You are reviewing materials in your own matter. Treat sentiment as friendly/hostile relative to the user.';
 
-  const prompt = `
-    Analyze this discovery file.
-    Bates Number: ${batesNumber}.
-    Filename: ${fileName}.
-    File Type: ${fileType}.
-    Case Perspective: ${perspectiveText}
+  const contentParts: any[] = [
+    { text: `Analyze this discovery file.\nBates Number: ${batesNumber}.\nFilename: ${fileName}.\nFile Type: ${fileType}.\nCase Perspective: ${perspectiveText}` },
+  ];
 
-    ${transcription ? `TRANSCRIPTION:\n${transcription}\n\n` : ''}
+  if (metadata) {
+    contentParts.push({ text: `File metadata: ${JSON.stringify(metadata)}` });
+  }
 
-    INSTRUCTIONS:
-    - Extract key facts, entities, dates, and relevant legal information
-    - Classify the "evidenceType" accurately from the provided list
-    - Provide a concise summary of the content
-    - Identify sentiment/tone if applicable
-    ${!transcription && (fileType === 'AUDIO' || fileType === 'VIDEO') ? '- For audio/video without transcription, describe what you can observe' : ''}
-  `;
+  if (transcription) {
+    contentParts.push({ text: `TRANSCRIPTION:\n${transcription}` });
+  }
+
+  if (textChunks && textChunks.length > 0) {
+    textChunks.forEach((chunk, idx) => {
+      contentParts.push({ text: `[Document Chunk ${idx + 1}]\n${chunk}` });
+    });
+  } else if (textContent) {
+    contentParts.push({ text: `DOCUMENT CONTENT:\n${textContent}` });
+  } else if (base64Data && mimeType) {
+    contentParts.push({ inlineData: { data: base64Data, mimeType } });
+  }
+
+  contentParts.push({ text: 'INSTRUCTIONS:\n- Extract key facts, entities, dates, and relevant legal information\n- Classify the "evidenceType" accurately from the provided list\n- Provide a concise summary of the content\n- Identify sentiment/tone if applicable' });
+  if (!transcription && (fileType === 'AUDIO' || fileType === 'VIDEO')) {
+    contentParts.push({ text: '- For audio/video without transcription, describe observable details.' });
+  }
 
   const schema: Schema = {
     type: Type.OBJECT,
@@ -143,24 +189,20 @@ export async function analyzeFileServer({
     required: ['summary', 'evidenceType', 'entities', 'relevantFacts']
   };
 
-  const response = await ai.models.generateContent({
-    model: modelName,
-    contents: {
-      parts: [
-        { inlineData: { data: base64Data, mimeType } },
-        { text: prompt }
-      ]
-    },
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION_ANALYZER,
-      responseMimeType: 'application/json',
-      responseSchema: schema,
-    }
-  });
+  const response = await withModelFallback(ANALYSIS_MODEL, async chosenModel =>
+    ai.models.generateContent({
+      model: chosenModel,
+      contents: { parts: contentParts },
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION_ANALYZER,
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+      }
+    })
+  );
 
   const analysisResult = JSON.parse(response.text || '{}');
 
-  // Ensure transcription is included in the result
   if (transcription && !analysisResult.transcription) {
     analysisResult.transcription = transcription;
   }
@@ -168,10 +210,6 @@ export async function analyzeFileServer({
   return analysisResult;
 }
 
-/**
- * Server-side function to chat with discovery context
- * Receives simplified context from client
- */
 export async function chatWithDiscoveryServer(
   query: string,
   filesContext: Array<{
@@ -189,7 +227,6 @@ export async function chatWithDiscoveryServer(
   },
   casePerspective?: string
 ) {
-  // Build context from all file summaries
   let contextString = 'Here is the summary of the discovery files available:\n';
   filesContext.forEach(f => {
     contextString += `\n--- File: ${f.batesNumber} (${f.name}) ---\n`;
@@ -210,7 +247,6 @@ export async function chatWithDiscoveryServer(
     { text: contextString },
   ];
 
-  // If viewing a specific file, add its detailed info
   if (activeFile) {
     contentParts.push({ text: `\nUSER IS CURRENTLY VIEWING FILE: ${activeFile.batesNumber}. Focus on this file.` });
 
@@ -225,11 +261,13 @@ export async function chatWithDiscoveryServer(
 
   contentParts.push({ text: `\nUSER QUESTION: ${query}` });
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash-exp',
-    contents: { parts: contentParts },
-    config: { systemInstruction: SYSTEM_INSTRUCTION_CHAT }
-  });
+  const response = await withModelFallback(CHAT_MODEL, async chosenModel =>
+    ai.models.generateContent({
+      model: chosenModel,
+      contents: { parts: contentParts },
+      config: { systemInstruction: SYSTEM_INSTRUCTION_CHAT }
+    })
+  );
 
   return response.text || 'I could not generate a response based on the available evidence.';
 }

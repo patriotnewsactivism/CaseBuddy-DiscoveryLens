@@ -5,7 +5,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor, Project, CasePerspective } from '@/lib/types';
 import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
 import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
-import { createProject, saveDocumentToCloud, updateDocumentAnalysis } from '@/lib/discoveryService';
+import { createProject, saveDocumentToCloud, updateDocumentAnalysis, updateDocumentStatus } from '@/lib/discoveryService';
 import FilePreview from '@/app/components/FilePreview';
 import ChatInterface from '@/app/components/ChatInterface';
 import BatesBadge from '@/app/components/BatesBadge';
@@ -192,6 +192,14 @@ export default function App() {
         }
         return f;
       }));
+
+      if (currentProject && file.cloudDocumentId) {
+        try {
+          await updateDocumentStatus(file.cloudDocumentId, 'failed', 'Analysis failed');
+        } catch (statusError) {
+          console.error(`Failed to update cloud status for ${file.name}:`, statusError);
+        }
+      }
     }
   };
 
