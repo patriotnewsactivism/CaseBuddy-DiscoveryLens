@@ -58,22 +58,13 @@ const detectMimeType = async (buffer: Buffer, provided?: string, fileName?: stri
 };
 
 const extractFromPdf = async (buffer: Buffer) => {
-  const canvas = await import('@napi-rs/canvas');
-  if (!(globalThis as any).DOMMatrix) {
-    (globalThis as any).DOMMatrix = canvas.DOMMatrix;
-  }
-  if (!(globalThis as any).DOMPoint) {
-    (globalThis as any).DOMPoint = canvas.DOMPoint;
-  }
-  if (!(globalThis as any).ImageData) {
-    (globalThis as any).ImageData = canvas.ImageData;
-  }
-
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs');
   const { getDocument, GlobalWorkerOptions } = pdfjs as any;
 
-  if (GlobalWorkerOptions && !GlobalWorkerOptions.workerSrc) {
-    GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.mjs', import.meta.url).toString();
+  if (GlobalWorkerOptions) {
+    // Use the packaged ESM worker to avoid relying on Node canvas bindings.
+    GlobalWorkerOptions.workerSrc = worker as unknown as string;
   }
 
   const loadingTask = getDocument({ data: new Uint8Array(buffer) });
