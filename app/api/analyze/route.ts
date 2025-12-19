@@ -37,6 +37,13 @@ export async function POST(request: NextRequest) {
       };
     }
 
+    if ((!cleanedText || cleanedText.length === 0) && base64Data && mimeType) {
+      metadata = {
+        ...metadata,
+        inlineDataProvided: true,
+      };
+    }
+
     const analysis = await analyzeFileServer({
       mimeType: detectedMime || mimeType,
       fileName: fileName || 'Unknown',

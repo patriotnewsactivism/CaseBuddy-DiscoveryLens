@@ -3,6 +3,24 @@ import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORI
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
+const ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.0-pro-exp-02-05';
+const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || ANALYSIS_MODEL;
+const TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.0-flash-001';
+
+const withModelFallback = async <T>(
+  model: string,
+  generator: (chosenModel: string) => Promise<T>,
+  fallbackModel = 'gemini-2.0-flash-thinking-exp-1219'
+): Promise<T> => {
+  try {
+    return await generator(model);
+  } catch (primaryError) {
+    console.warn(`Primary model ${model} failed, falling back to ${fallbackModel}:`, primaryError);
+    if (fallbackModel === model) throw primaryError;
+    return generator(fallbackModel);
+  }
+};
+
 export async function transcribeAudioServer({
   base64Data,
   mimeType,
@@ -14,8 +32,6 @@ export async function transcribeAudioServer({
   fileName: string;
   batesNumber: string;
 }) {
-  const modelName = 'gemini-2.0-flash-exp';
-
   const prompt = `
     You are transcribing audio/video evidence for legal discovery.
     Bates Number: ${batesNumber}
@@ -32,18 +48,20 @@ export async function transcribeAudioServer({
     Return ONLY the transcription text. Do not add commentary or analysis.
   `;
 
-  const response = await ai.models.generateContent({
-    model: modelName,
-    contents: {
-      parts: [
-        { inlineData: { data: base64Data, mimeType } },
-        { text: prompt }
-      ]
-    },
-    config: {
-      systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
-    }
-  });
+  const response = await withModelFallback(TRANSCRIBE_MODEL, async chosenModel =>
+    ai.models.generateContent({
+      model: chosenModel,
+      contents: {
+        parts: [
+          { inlineData: { data: base64Data, mimeType } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+      }
+    })
+  );
 
   return response.text || '[Transcription failed]';
 }
@@ -69,8 +87,6 @@ export async function analyzeFileServer({
   textChunks?: string[];
   metadata?: Record<string, unknown>;
 }) {
-  const modelName = 'gemini-2.0-flash-exp';
-
   let transcription = '';
   if (!textContent && (fileType === 'AUDIO' || fileType === 'VIDEO') && base64Data && mimeType) {
     try {
@@ -134,15 +150,17 @@ export async function analyzeFileServer({
     required: ['summary', 'evidenceType', 'entities', 'relevantFacts']
   };
 
-  const response = await ai.models.generateContent({
-    model: modelName,
-    contents: { parts: contentParts },
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION_ANALYZER,
-      responseMimeType: 'application/json',
-      responseSchema: schema,
-    }
-  });
+  const response = await withModelFallback(ANALYSIS_MODEL, async chosenModel =>
+    ai.models.generateContent({
+      model: chosenModel,
+      contents: { parts: contentParts },
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION_ANALYZER,
+        responseMimeType: 'application/json',
+        responseSchema: schema,
+      }
+    })
+  );
 
   const analysisResult = JSON.parse(response.text || '{}');
 
@@ -204,11 +222,13 @@ export async function chatWithDiscoveryServer(
 
   contentParts.push({ text: `\nUSER QUESTION: ${query}` });
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash-exp',
-    contents: { parts: contentParts },
-    config: { systemInstruction: SYSTEM_INSTRUCTION_CHAT }
-  });
+  const response = await withModelFallback(CHAT_MODEL, async chosenModel =>
+    ai.models.generateContent({
+      model: chosenModel,
+      contents: { parts: contentParts },
+      config: { systemInstruction: SYSTEM_INSTRUCTION_CHAT }
+    })
+  );
 
   return response.text || 'I could not generate a response based on the available evidence.';
 }
