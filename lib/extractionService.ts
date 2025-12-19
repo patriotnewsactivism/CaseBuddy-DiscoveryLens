@@ -1,4 +1,6 @@
 import { fileTypeFromBuffer } from 'file-type';
+import fileType from 'file-type';
+import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import { lookup as mimeLookup } from 'mime-types';
@@ -17,14 +19,21 @@ const isProbablyText = (mime?: string | null) => {
   return mime.startsWith('text/') ||
     mime.includes('json') ||
     mime.includes('xml') ||
-    mime.includes('html');
+    mime.includes('html') ||
+    mime.includes('csv') ||
+    mime.includes('tsv') ||
+    mime.includes('yaml') ||
+    mime.includes('yml') ||
+    mime.includes('rtf') ||
+    mime.includes('rfc822') ||
+    mime.includes('markdown');
 };
 
 export const normalizeText = (text: string): string => {
   return text
     .replace(/\u0000/g, '')
     .replace(/\r\n?/g, '\n')
-    .trim();
+    .replace(/^\s+|\s+$/g, '');
 };
 
 export const chunkText = (text: string, size: number = DEFAULT_CHUNK_SIZE): string[] => {
@@ -93,6 +102,69 @@ const extractFromJson = (buffer: Buffer) => {
   }
 };
 
+const extractFromCsvOrTsv = (buffer: Buffer) => {
+  const decoded = buffer.toString('utf-8');
+  const rows = decoded
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(line => line.trim());
+  return normalizeText(rows.join('\n'));
+};
+
+const stripRtfFormatting = (text: string) => {
+  const decodedHex = text.replace(/\\'([0-9a-fA-F]{2})/g, (_match, hex) => {
+    return String.fromCharCode(parseInt(hex, 16));
+  });
+
+  const withoutControls = decodedHex
+    .replace(/\{\\\*?[^}]+\}/g, ' ')
+    .replace(/\\[a-zA-Z]+-?\d* ?/g, ' ')
+    .replace(/[{}]/g, ' ')
+    .replace(/\\~/g, ' ')
+    .replace(/\\-|\\_/g, ' ');
+
+  return normalizeText(withoutControls);
+};
+
+const extractFromRtf = (buffer: Buffer) => {
+  const decoded = buffer.toString('utf-8');
+  return stripRtfFormatting(decoded);
+};
+
+const extractFromEmail = (buffer: Buffer) => {
+  const decoded = buffer.toString('utf-8');
+  // Preserve headers but strip excessive whitespace for readability
+  return normalizeText(decoded);
+};
+
+const extractFromZip = async (buffer: Buffer) => {
+  const zip = new JSZip();
+  const archive = await zip.loadAsync(buffer);
+  const textEntries: string[] = [];
+  const entryNames: string[] = [];
+
+  const textLikeExtensions = ['txt', 'csv', 'tsv', 'json', 'xml', 'html', 'md', 'rtf', 'yaml', 'yml'];
+
+  for (const [path, entry] of Object.entries(archive.files)) {
+    if (entry.dir) continue;
+    const ext = path.split('.').pop()?.toLowerCase() || '';
+    if (!textLikeExtensions.includes(ext)) continue;
+
+    const content = await entry.async('string');
+    textEntries.push(`--- ${path} ---\n${content}`);
+    entryNames.push(path);
+  }
+
+  const combined = textEntries.join('\n\n');
+  return {
+    text: normalizeText(combined),
+    metadata: {
+      archiveEntries: textEntries.length,
+      archiveFileNames: entryNames,
+    },
+  };
+};
+
 export const extractTextFromBase64 = async (
   base64Data: string,
   providedMimeType?: string,
@@ -102,6 +174,8 @@ export const extractTextFromBase64 = async (
   const mimeType = await detectMimeType(buffer, providedMimeType, fileName);
 
   let text = '';
+  let metadata: Record<string, unknown> = {};
+
   if (mimeType.includes('pdf')) {
     text = await extractFromPdf(buffer);
   } else if (mimeType.includes('wordprocessingml') || mimeType.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
@@ -112,6 +186,18 @@ export const extractTextFromBase64 = async (
     text = extractFromHtmlOrXml(buffer);
   } else if (mimeType.includes('html') || mimeType === 'text/html') {
     text = extractFromHtmlOrXml(buffer);
+  } else if (mimeType.includes('csv') || mimeType.includes('tsv')) {
+    text = extractFromCsvOrTsv(buffer);
+  } else if (mimeType.includes('yaml') || mimeType.includes('yml')) {
+    text = extractFromStructuredText(buffer);
+  } else if (mimeType.includes('rtf')) {
+    text = extractFromRtf(buffer);
+  } else if (mimeType.includes('rfc822')) {
+    text = extractFromEmail(buffer);
+  } else if (mimeType.includes('zip')) {
+    const zipResult = await extractFromZip(buffer);
+    text = zipResult.text;
+    metadata = { ...metadata, ...zipResult.metadata };
   } else if (isProbablyText(mimeType)) {
     text = extractFromStructuredText(buffer);
   } else {
@@ -130,6 +216,7 @@ export const extractTextFromBase64 = async (
       byteLength: buffer.byteLength,
       wordCount: normalized ? normalized.split(/\s+/).length : 0,
       chunkCount: chunks.length,
+      ...metadata,
     },
     chunks,
   };
