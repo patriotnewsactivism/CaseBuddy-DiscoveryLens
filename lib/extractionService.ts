@@ -64,7 +64,8 @@ const extractFromPdf = async (buffer: Buffer) => {
 
   if (GlobalWorkerOptions) {
     // Use the packaged ESM worker to avoid relying on Node canvas bindings.
-    GlobalWorkerOptions.workerSrc = worker as unknown as string;
+    const workerSrc = (worker as any).default || 'pdfjs-dist/build/pdf.worker.min.mjs';
+    GlobalWorkerOptions.workerSrc = typeof workerSrc === 'string' ? workerSrc : 'pdfjs-dist/build/pdf.worker.min.mjs';
   }
 
   const loadingTask = getDocument({ data: new Uint8Array(buffer) });

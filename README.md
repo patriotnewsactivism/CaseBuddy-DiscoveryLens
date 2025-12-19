@@ -17,6 +17,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/15dMUw2d8YVa0Z564KGHLU5
    `npm install`
 2. Copy [.env.example](.env.example) to `.env.local` and fill in your own credentials (do **not** use the placeholders):
    - `GEMINI_API_KEY` (Gemini API access)
+   - `ASSEMBLYAI_API_KEY` (AssemblyAI transcription)
    - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` (Supabase database + storage)
    - `CLOUD_STORAGE_BUCKET`, `CLOUD_STORAGE_REGION`, `CLOUD_STORAGE_ACCESS_KEY`, `CLOUD_STORAGE_SECRET_KEY` (S3-compatible storage for uploads/manifests)
    - Optional S3 overrides for non-AWS providers:
