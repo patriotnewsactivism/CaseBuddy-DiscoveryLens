@@ -78,7 +78,8 @@ export default function App() {
       console.log('Project initialized:', project);
     } catch (error) {
       console.error('Failed to initialize project:', error);
-      setSaveError('Failed to initialize cloud storage. Files will not be saved.');
+      const message = error instanceof Error ? error.message : 'Failed to initialize project.';
+      setSaveError(message);
     } finally {
       setIsInitializingProject(false);
     }
