@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 
 export const maxDuration = 300; // 5 minutes for large file uploads
@@ -6,39 +7,51 @@ export const maxDuration = 300; // 5 minutes for large file uploads
 // POST /api/storage/upload - Upload a file to Supabase Storage
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { base64Data, fileName, mimeType, projectId, batesNumber } = body;
+    const formData = await request.formData();
 
-    // Validate required fields
-    if (!base64Data || !fileName || !mimeType || !projectId || !batesNumber) {
+    const file = formData.get('file');
+    const fileName = formData.get('fileName') as string | null;
+    const mimeType = formData.get('mimeType') as string | null;
+    const projectId = formData.get('projectId') as string | null;
+    const batesNumber = formData.get('batesNumber') as string | null;
+    const checksum = formData.get('checksum') as string | null;
+
+    if (!file || typeof file === 'string' || !fileName || !mimeType || !projectId || !batesNumber) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    // Convert base64 to buffer
-    const buffer = Buffer.from(base64Data, 'base64');
+    const arrayBuffer = await (file as File).arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
 
-    // Generate storage path: projects/{projectId}/{batesNumber}_{fileName}
+    if (checksum) {
+      const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+      if (hash !== checksum) {
+        return NextResponse.json(
+          { error: 'Checksum mismatch. Upload aborted.' },
+          { status: 409 }
+        );
+      }
+    }
+
     const storagePath = `${projectId}/${batesNumber}_${fileName}`;
 
     const supabase = getSupabaseAdmin();
 
-    // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from('discovery-files')
       .upload(storagePath, buffer, {
         contentType: mimeType,
-        upsert: false, // Don't overwrite existing files
+        upsert: false,
       });
 
     if (error) throw error;
 
-    // Generate a signed URL valid for 1 year
     const { data: urlData } = await supabase.storage
       .from('discovery-files')
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1 year
+      .createSignedUrl(storagePath, 60 * 60 * 24 * 365);
 
     return NextResponse.json({
       storagePath: data.path,

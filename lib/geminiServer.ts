@@ -198,8 +198,6 @@ export async function chatWithDiscoveryServer(
 
     if (activeFile.transcription && activeFile.transcription.length > 50) {
       contentParts.push({ text: `TRANSCRIPTION OF VIEWED FILE:\n${activeFile.transcription}` });
-    } else if (activeFile.base64Data && activeFile.mimeType) {
-      contentParts.push({ inlineData: { data: activeFile.base64Data, mimeType: activeFile.mimeType } });
     }
   }
 

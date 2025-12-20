@@ -119,7 +119,8 @@ export default function App() {
         },
         previewUrl: URL.createObjectURL(file),
         isProcessing: true,
-        analysis: null
+        analysis: null,
+        analysisError: null
       };
 
       newFiles.push(newDiscoveryFile);
@@ -144,7 +145,7 @@ export default function App() {
           // Update file with cloud storage info
           setFiles(prev => prev.map(f => {
             if (f.id === file.id) {
-              return { ...f, cloudDocumentId: documentId, storagePath, signedUrl };
+              return { ...f, cloudDocumentId: documentId, storagePath, signedUrl, analysisError: null };
             }
             return f;
           }));
@@ -160,7 +161,7 @@ export default function App() {
       // Step 3: Update local state
       setFiles(prev => prev.map(f => {
         if (f.id === file.id) {
-          return { ...f, isProcessing: false, analysis };
+          return { ...f, isProcessing: false, analysis, analysisError: null };
         }
         return f;
       }));
@@ -181,14 +182,8 @@ export default function App() {
           return {
             ...f,
             isProcessing: false,
-            analysis: {
-                summary: "Error processing file.",
-                evidenceType: "Unknown",
-                entities: [],
-                dates: [],
-                relevantFacts: ["Analysis failed."],
-                transcription: "N/A"
-            }
+            analysis: null,
+            analysisError: error instanceof Error ? error.message : 'Analysis failed.',
           };
         }
         return f;
@@ -202,6 +197,20 @@ export default function App() {
         }
       }
     }
+  };
+
+  const handleRetryAnalysis = (fileId: string) => {
+    const target = files.find(f => f.id === fileId);
+    if (!target) return;
+
+    setFiles(prev => prev.map(f => {
+      if (f.id === fileId) {
+        return { ...f, isProcessing: true, analysisError: null };
+      }
+      return f;
+    }));
+
+    processFileAnalysis({ ...target, isProcessing: true, analysis: null, analysisError: null });
   };
 
   const handleSelectFile = (id: string) => {
@@ -626,6 +635,29 @@ export default function App() {
 
              {viewMode === ViewMode.EVIDENCE_VIEWER && selectedFile && (
                <div className="h-full bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                  {selectedFile.analysisError && (
+                    <div className="bg-red-50 border-b border-red-100 px-4 py-3 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-red-800">Analysis failed</p>
+                        <p className="text-xs text-red-700">{selectedFile.analysisError}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleRetryAnalysis(selectedFile.id)}
+                          className="text-xs px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+                          disabled={selectedFile.isProcessing}
+                        >
+                          {selectedFile.isProcessing ? 'Retrying...' : 'Retry analysis'}
+                        </button>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(selectedFile.analysisError || '')}
+                          className="text-xs px-3 py-1.5 rounded border border-red-200 text-red-700 bg-white hover:bg-red-100 transition-colors"
+                        >
+                          Copy error
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <FilePreview file={selectedFile} />
                </div>
              )}

@@ -39,6 +39,7 @@ export interface DiscoveryFile {
   analysis: AnalysisData | null;
   base64Data?: string; // Cache for API calls
   mimeType: string;
+  analysisError?: string | null;
   // Cloud storage fields
   cloudDocumentId?: string; // Document ID in Supabase
   storagePath?: string; // Path in Supabase Storage
