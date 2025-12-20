@@ -1,5 +1,5 @@
 import { DiscoveryFile } from './types';
-import { fileToBase64 } from './geminiService';
+import { sha256FromFile } from './checksum';
 
 /**
  * Service layer for discovery operations with cloud storage
@@ -65,23 +65,23 @@ export async function listProjects() {
 // Document Operations
 export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectId: string) {
   try {
-    // Step 1: Upload file to storage
-    const base64Data = await fileToBase64(discoveryFile.file);
+    const checksum = await sha256FromFile(discoveryFile.file);
+    const formData = new FormData();
+    formData.append('file', discoveryFile.file);
+    formData.append('fileName', discoveryFile.name);
+    formData.append('mimeType', discoveryFile.mimeType);
+    formData.append('projectId', projectId);
+    formData.append('batesNumber', discoveryFile.batesNumber.formatted);
+    formData.append('checksum', checksum);
 
     const storageResponse = await fetch('/api/storage/upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        base64Data,
-        fileName: discoveryFile.name,
-        mimeType: discoveryFile.mimeType,
-        projectId,
-        batesNumber: discoveryFile.batesNumber.formatted,
-      }),
+      body: formData,
     });
 
     if (!storageResponse.ok) {
-      throw new Error('Failed to upload file to storage');
+      const error = await storageResponse.json().catch(() => ({ error: 'Failed to upload file to storage' }));
+      throw new Error(error.error || 'Failed to upload file to storage');
     }
 
     const { storagePath, signedUrl } = await storageResponse.json();

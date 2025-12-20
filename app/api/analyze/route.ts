@@ -1,17 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeFileServer } from '@/lib/geminiServer';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
+import { getSupabaseAdmin } from '@/lib/supabaseClient';
+
+async function downloadStorageObject(storagePath: string, signedUrl?: string) {
+  const supabase = getSupabaseAdmin();
+
+  const url = signedUrl
+    ? signedUrl
+    : (await supabase.storage.from('discovery-files').createSignedUrl(storagePath, 300)).data?.signedUrl;
+
+  if (!url) {
+    throw new Error('Unable to generate signed URL for storage object');
+  }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download storage object: ${response.status}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
 
 export const maxDuration = 300; // 5 minutes for long file analysis
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { base64Data, mimeType, fileName, batesNumber, fileType, casePerspective, extractedText } = body;
+    const { base64Data, mimeType, fileName, batesNumber, fileType, casePerspective, extractedText, storagePath, signedUrl } = body;
 
-    if (!base64Data && !extractedText) {
+    if (!base64Data && !extractedText && !storagePath) {
       return NextResponse.json(
-        { error: 'Missing required fields: base64Data or extractedText' },
+        { error: 'Missing required fields: storagePath, base64Data, or extractedText' },
         { status: 400 }
       );
     }
@@ -20,9 +41,14 @@ export async function POST(request: NextRequest) {
     let detectedMime = mimeType as string | undefined;
     let metadata: Record<string, unknown> | undefined;
     let chunks: string[] = [];
+    let payloadBase64 = base64Data as string | undefined;
 
-    if (!cleanedText && base64Data) {
-      const extraction = await extractTextFromBase64(base64Data, mimeType, fileName);
+    if (!payloadBase64 && storagePath) {
+      payloadBase64 = (await downloadStorageObject(storagePath as string, signedUrl)).toString('base64');
+    }
+
+    if (!cleanedText && payloadBase64) {
+      const extraction = await extractTextFromBase64(payloadBase64, mimeType, fileName);
       cleanedText = extraction.text;
       detectedMime = extraction.mimeType;
       metadata = extraction.metadata;
@@ -37,10 +63,11 @@ export async function POST(request: NextRequest) {
       };
     }
 
-    if ((!cleanedText || cleanedText.length === 0) && base64Data && mimeType) {
+    if ((!cleanedText || cleanedText.length === 0) && (base64Data || storagePath) && mimeType) {
       metadata = {
         ...metadata,
-        inlineDataProvided: true,
+        inlineDataProvided: Boolean(base64Data),
+        storageBacked: Boolean(storagePath),
       };
     }
 
@@ -53,7 +80,7 @@ export async function POST(request: NextRequest) {
       textContent: cleanedText,
       textChunks: chunks,
       metadata,
-      base64Data,
+      base64Data: payloadBase64,
     });
 
     return NextResponse.json(analysis);
