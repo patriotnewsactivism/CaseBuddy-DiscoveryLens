@@ -12,25 +12,60 @@ const extractClientText = async (file: File, mimeType: string): Promise<string |
   }
 };
 
+export const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(buffer).toString('base64');
+  }
+
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+};
+
+export const readFileAsBase64 = async (file: File): Promise<string> => {
+  const buffer = await file.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+};
+
+export const buildAnalyzePayload = async (
+  discoveryFile: DiscoveryFile,
+  casePerspective: CasePerspective
+): Promise<Record<string, unknown>> => {
+  const extractedText = await extractClientText(discoveryFile.file, discoveryFile.mimeType);
+  let base64Data: string | undefined;
+
+  if (!extractedText && !discoveryFile.storagePath) {
+    base64Data = await readFileAsBase64(discoveryFile.file);
+  }
+
+  return {
+    extractedText,
+    base64Data,
+    mimeType: discoveryFile.mimeType,
+    fileName: discoveryFile.name,
+    batesNumber: discoveryFile.batesNumber.formatted,
+    fileType: discoveryFile.type,
+    storagePath: discoveryFile.storagePath,
+    signedUrl: discoveryFile.signedUrl,
+    casePerspective,
+  };
+};
+
 export const analyzeFile = async (
   discoveryFile: DiscoveryFile,
   casePerspective: CasePerspective
 ): Promise<any> => {
-  const extractedText = await extractClientText(discoveryFile.file, discoveryFile.mimeType);
+  const payload = await buildAnalyzePayload(discoveryFile, casePerspective);
 
   const response = await fetch('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      extractedText,
-      mimeType: discoveryFile.mimeType,
-      fileName: discoveryFile.name,
-      batesNumber: discoveryFile.batesNumber.formatted,
-      fileType: discoveryFile.type,
-      storagePath: discoveryFile.storagePath,
-      signedUrl: discoveryFile.signedUrl,
-      casePerspective,
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
