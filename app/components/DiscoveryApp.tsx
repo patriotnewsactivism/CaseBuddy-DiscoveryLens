@@ -138,9 +138,11 @@ export default function App() {
   const processFileAnalysis = async (file: DiscoveryFile) => {
     try {
       // Step 1: Save file to cloud storage first
+      let analysisTarget = file;
       if (currentProject) {
         try {
           const { documentId, storagePath, signedUrl } = await saveDocumentToCloud(file, currentProject.id);
+          analysisTarget = { ...file, cloudDocumentId: documentId, storagePath, signedUrl };
 
           // Update file with cloud storage info
           setFiles(prev => prev.map(f => {
@@ -156,7 +158,7 @@ export default function App() {
       }
 
       // Step 2: Analyze the file
-      const analysis: AnalysisData = await analyzeFile(file, casePerspective);
+      const analysis: AnalysisData = await analyzeFile(analysisTarget, casePerspective);
 
       // Step 3: Update local state
       setFiles(prev => prev.map(f => {
@@ -167,9 +169,9 @@ export default function App() {
       }));
 
       // Step 4: Update analysis in cloud storage
-      if (currentProject && file.cloudDocumentId) {
+      if (currentProject && analysisTarget.cloudDocumentId) {
         try {
-          await updateDocumentAnalysis(file.cloudDocumentId, analysis);
+          await updateDocumentAnalysis(analysisTarget.cloudDocumentId, analysis);
           console.log(`Analysis saved to cloud for ${file.name}`);
         } catch (updateError) {
           console.error(`Failed to update analysis for ${file.name}:`, updateError);
@@ -189,9 +191,9 @@ export default function App() {
         return f;
       }));
 
-      if (currentProject && file.cloudDocumentId) {
+      if (currentProject && analysisTarget.cloudDocumentId) {
         try {
-          await updateDocumentStatus(file.cloudDocumentId, 'failed', 'Analysis failed');
+          await updateDocumentStatus(analysisTarget.cloudDocumentId, 'failed', 'Analysis failed');
         } catch (statusError) {
           console.error(`Failed to update cloud status for ${file.name}:`, statusError);
         }
