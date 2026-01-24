@@ -62,6 +62,25 @@ export async function transcodeToMonoWav({ inputBuffer, mimeType, sizeLimit = MA
   const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
   return new Promise<MediaBufferResult>((resolve, reject) => {
+    let settled = false;
+    const resolveOnce = (result: MediaBufferResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    const rejectOnce = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const fallbackToInput = () => {
+      if (!mimeType.startsWith('audio/')) {
+        rejectOnce(new Error('FFmpeg is required to extract audio from video files.'));
+        return;
+      }
+      validateMediaSize(inputBuffer.byteLength, sizeLimit, 'Input audio');
+      resolveOnce({ audioBuffer: inputBuffer, audioMimeType: mimeType });
+    };
     const stdoutChunks: Buffer[] = [];
     let stdoutSize = 0;
     const stderr = new PassThrough();
@@ -74,7 +93,7 @@ export async function transcodeToMonoWav({ inputBuffer, mimeType, sizeLimit = MA
         validateMediaSize(stdoutSize, sizeLimit, 'Downsampled audio');
       } catch (err) {
         ffmpeg.kill('SIGKILL');
-        reject(err);
+        rejectOnce(err as Error);
       }
     });
 
@@ -82,19 +101,26 @@ export async function transcodeToMonoWav({ inputBuffer, mimeType, sizeLimit = MA
     const errorChunks: Buffer[] = [];
     stderr.on('data', chunk => errorChunks.push(chunk as Buffer));
 
-    ffmpeg.on('error', err => reject(err));
+    ffmpeg.on('error', err => {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === 'ENOENT') {
+        fallbackToInput();
+        return;
+      }
+      rejectOnce(err as Error);
+    });
 
     ffmpeg.on('close', code => {
       if (code !== 0) {
         const errorMessage = Buffer.concat(errorChunks).toString() || `ffmpeg exited with code ${code}`;
-        reject(new Error(errorMessage.trim()));
+        rejectOnce(new Error(errorMessage.trim()));
         return;
       }
 
       const audioBuffer = Buffer.concat(stdoutChunks);
       validateMediaSize(audioBuffer.byteLength, sizeLimit, 'Downsampled audio');
 
-      resolve({ audioBuffer, audioMimeType: 'audio/wav' });
+      resolveOnce({ audioBuffer, audioMimeType: 'audio/wav' });
     });
 
     ffmpeg.stdin.write(inputBuffer);

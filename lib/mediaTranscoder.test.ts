@@ -2,38 +2,49 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { PassThrough } from 'stream';
 import { transcodeToMonoWav, validateMediaSize, getMaxMediaBytes } from './mediaTranscoder';
 
-vi.mock('child_process', () => {
-  const spawnMock = vi.fn(() => {
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    const stdin = new PassThrough();
-    const events: Record<string, ((code?: number) => void)[]> = {};
+type MockProcessOptions = {
+  stdoutData?: string;
+  exitCode?: number;
+  error?: NodeJS.ErrnoException;
+};
 
-    const on = (event: string, handler: (code?: number) => void) => {
-      if (!events[event]) events[event] = [];
-      events[event].push(handler);
-    };
+const createMockProcess = ({ stdoutData = 'downsampled-audio', exitCode = 0, error }: MockProcessOptions = {}) => {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const stdin = new PassThrough();
+  const events: Record<string, ((payload?: unknown) => void)[]> = {};
 
-    const emit = (event: string, code?: number) => {
-      (events[event] || []).forEach(fn => fn(code));
-    };
+  const on = (event: string, handler: (payload?: unknown) => void) => {
+    if (!events[event]) events[event] = [];
+    events[event].push(handler);
+  };
 
-    // Simulate ffmpeg processing asynchronously
-    setImmediate(() => {
-      stdout.write(Buffer.from('downsampled-audio'));
-      stdout.end();
-      stderr.end();
-      emit('close', 0);
-    });
+  const emit = (event: string, payload?: unknown) => {
+    (events[event] || []).forEach(fn => fn(payload));
+  };
 
-    return {
-      stdin,
-      stdout,
-      stderr,
-      on,
-      kill: vi.fn(),
-    } as any;
+  setImmediate(() => {
+    if (error) {
+      emit('error', error);
+      return;
+    }
+    stdout.write(Buffer.from(stdoutData));
+    stdout.end();
+    stderr.end();
+    emit('close', exitCode);
   });
+
+  return {
+    stdin,
+    stdout,
+    stderr,
+    on,
+    kill: vi.fn(),
+  } as any;
+};
+
+vi.mock('child_process', () => {
+  const spawnMock = vi.fn(() => createMockProcess());
 
   return { spawn: spawnMock };
 });
@@ -71,6 +82,20 @@ describe('mediaTranscoder', () => {
     const huge = Buffer.alloc(getMaxMediaBytes() + 1);
 
     await expect(transcodeToMonoWav({ inputBuffer: huge, mimeType: 'audio/wav' })).rejects.toThrow('Input media exceeds maximum size');
+  });
+
+  it('falls back to original audio when ffmpeg is missing', async () => {
+    mockedSpawn.mockImplementationOnce(() =>
+      createMockProcess({
+        error: Object.assign(new Error('spawn ffmpeg ENOENT'), { code: 'ENOENT' }),
+      })
+    );
+
+    const input = Buffer.from('audio-input');
+    const result = await transcodeToMonoWav({ inputBuffer: input, mimeType: 'audio/wav' });
+
+    expect(result.audioMimeType).toBe('audio/wav');
+    expect(result.audioBuffer.toString()).toBe('audio-input');
   });
 
   it('validateMediaSize enforces limits', () => {
