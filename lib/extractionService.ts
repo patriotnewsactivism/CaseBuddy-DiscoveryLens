@@ -149,31 +149,7 @@ const detectScannedPdf = async (pdf: any): Promise<boolean> => {
 };
 
 const extractPageAsImage = async (pdf: any, pageNumber: number): Promise<string> => {
-  const canvas = await import('@napi-rs/canvas');
-  if (!(globalThis as any).DOMMatrix) {
-    (globalThis as any).DOMMatrix = canvas.DOMMatrix;
-  }
-  if (!(globalThis as any).DOMPoint) {
-    (globalThis as any).DOMPoint = canvas.DOMPoint;
-  }
-  if (!(globalThis as any).ImageData) {
-    (globalThis as any).ImageData = canvas.ImageData;
-  }
-
-  const page = await pdf.getPage(pageNumber);
-  const scale = 2;
-  const viewport = page.getViewport({ scale });
-  
-  const pageCanvas = canvas.createCanvas(viewport.width, viewport.height);
-  const context = pageCanvas.getContext('2d');
-  
-  await page.render({
-    canvasContext: context as unknown as CanvasRenderingContext2D,
-    viewport,
-  }).promise;
-  
-  const base64 = pageCanvas.toBuffer('image/png').toString('base64');
-  return base64;
+  throw new Error('Local OCR not available. Use Azure OCR for scanned PDFs.');
 };
 
 export interface OCROptions {
@@ -185,36 +161,32 @@ export const extractWithOCR = async (
   pdf: any,
   options: OCROptions = {}
 ): Promise<string> => {
-  const { maxPages = 10, onProgress } = options;
-  const totalPages = Math.min(pdf.numPages, maxPages);
-  const extractedTexts: string[] = [];
-  
-  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
-    if (onProgress) {
-      onProgress((pageNumber / totalPages) * 100, `OCR processing page ${pageNumber}/${totalPages}`);
+  throw new Error('Local OCR not available. Use Azure OCR for scanned PDFs.');
+};
+
+const setupPdfjsPolyfills = async (): Promise<boolean> => {
+  try {
+    const canvas = await import('@napi-rs/canvas');
+    if (!(globalThis as any).DOMMatrix) {
+      (globalThis as any).DOMMatrix = canvas.DOMMatrix;
     }
-    
-    const imageBase64 = await extractPageAsImage(pdf, pageNumber);
-    extractedTexts.push(`[Page ${pageNumber} - OCR]\n[Image data: ${imageBase64.substring(0, 50)}...]`);
+    if (!(globalThis as any).DOMPoint) {
+      (globalThis as any).DOMPoint = canvas.DOMPoint;
+    }
+    if (!(globalThis as any).ImageData) {
+      (globalThis as any).ImageData = canvas.ImageData;
+    }
+    return true;
+  } catch {
+    return false;
   }
-  
-  return extractedTexts.join('\n\n');
 };
 
 const extractFromPdf = async (
   buffer: Buffer,
   onProgress?: ProgressCallback
 ): Promise<{ text: string; isScanned: boolean }> => {
-  const canvas = await import('@napi-rs/canvas');
-  if (!(globalThis as any).DOMMatrix) {
-    (globalThis as any).DOMMatrix = canvas.DOMMatrix;
-  }
-  if (!(globalThis as any).DOMPoint) {
-    (globalThis as any).DOMPoint = canvas.DOMPoint;
-  }
-  if (!(globalThis as any).ImageData) {
-    (globalThis as any).ImageData = canvas.ImageData;
-  }
+  await setupPdfjsPolyfills();
 
   const loadingTask = getDocument({ data: new Uint8Array(buffer) });
   const pdf = await loadingTask.promise;
