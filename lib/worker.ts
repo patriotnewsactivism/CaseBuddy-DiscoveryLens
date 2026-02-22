@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from './supabaseClient';
 import { extractTextFromBase64, type ExtractionResult } from './extractionService';
-import { analyzeFileServer } from './geminiServer';
+import { analyzeFileServer } from './openAIService';
 import { LRUCache } from './cache';
 import type { Database, Json } from './database.types';
 
