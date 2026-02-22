@@ -205,7 +205,7 @@ class JobWorker {
       .from('documents')
       .select('id')
       .eq('content_hash', contentHash)
-      .eq('project_id', job.project_id)
+      .eq('project_id', job.project_id || '')
       .neq('id', document.id)
       .limit(1);
 
@@ -215,7 +215,7 @@ class JobWorker {
 
     const result: ExtractionResult = await extractTextFromBase64(
       base64Data,
-      document.mime_type,
+      document.mime_type || undefined,
       document.name,
       (progress, stage) => this.onProgress?.(job.id, 20 + progress * 0.6, stage)
     );
@@ -279,7 +279,7 @@ class JobWorker {
     const { data: project, error: projectError } = await supabase
       .from('projects')
       .select('description')
-      .eq('id', job.project_id)
+      .eq('id', job.project_id || '')
       .single();
 
     const casePerspective = project?.description || undefined;
@@ -288,8 +288,8 @@ class JobWorker {
 
     const analysis = await analyzeFileServer({
       fileName: document.name,
-      batesNumber: document.bates_formatted,
-      fileType: document.file_type,
+      batesNumber: document.bates_formatted || undefined,
+      fileType: document.file_type || 'DOCUMENT',
       casePerspective,
       textContent: document.extracted_text || undefined,
       textChunks,
