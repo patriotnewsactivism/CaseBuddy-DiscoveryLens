@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/types/database.types';
+import type { Database } from './database.types';
 
 // Client-side Supabase client (uses anon key)
 // Safe to use in browser - respects Row Level Security policies

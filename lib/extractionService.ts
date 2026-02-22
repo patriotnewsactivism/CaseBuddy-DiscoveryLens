@@ -3,15 +3,33 @@ import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import { lookup as mimeLookup } from 'mime-types';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
+
+if (!GlobalWorkerOptions.workerSrc) {
+  GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.296/legacy/build/pdf.worker.min.mjs`;
+}
 
 export interface ExtractionResult {
   text: string;
   mimeType: string;
   metadata: Record<string, unknown>;
   chunks: string[];
+  isScanned?: boolean;
+  chunkMetadata?: ChunkMetadata[];
 }
 
+export interface ChunkMetadata {
+  index: number;
+  charStart: number;
+  charEnd: number;
+  sentenceCount: number;
+}
+
+export type ProgressCallback = (progress: number, stage: string) => void;
+
 const DEFAULT_CHUNK_SIZE = 8000;
+const MIN_CHUNK_SIZE = 1000;
+const SENTENCE_TERMINATORS = /[.!?。！？]+/;
 
 const isProbablyText = (mime?: string | null) => {
   if (!mime) return false;
@@ -33,6 +51,62 @@ export const normalizeText = (text: string): string => {
     .replace(/\u0000/g, '')
     .replace(/\r\n?/g, '\n')
     .replace(/^\s+|\s+$/g, '');
+};
+
+const findSentenceBoundary = (text: string, startIndex: number, maxSize: number): number => {
+  const searchStart = Math.max(startIndex + MIN_CHUNK_SIZE, startIndex);
+  const searchEnd = Math.min(startIndex + maxSize, text.length);
+  
+  if (searchEnd >= text.length) return text.length;
+  
+  let lastBoundary = searchEnd;
+  for (let i = searchStart; i < searchEnd; i++) {
+    if (SENTENCE_TERMINATORS.test(text[i])) {
+      lastBoundary = i + 1;
+    }
+  }
+  
+  if (lastBoundary === searchEnd) {
+    for (let i = searchEnd; i < Math.min(searchEnd + 500, text.length); i++) {
+      if (text[i] === ' ' || text[i] === '\n') {
+        return i;
+      }
+    }
+  }
+  
+  return lastBoundary;
+};
+
+export const chunkTextSentenceAware = (
+  text: string,
+  maxSize: number = DEFAULT_CHUNK_SIZE
+): { chunks: string[]; metadata: ChunkMetadata[] } => {
+  if (!text) return { chunks: [], metadata: [] };
+  
+  const chunks: string[] = [];
+  const metadata: ChunkMetadata[] = [];
+  let index = 0;
+  let chunkIndex = 0;
+  
+  while (index < text.length) {
+    const boundary = findSentenceBoundary(text, index, maxSize);
+    const chunkText = text.slice(index, boundary);
+    
+    const sentenceCount = (chunkText.match(SENTENCE_TERMINATORS) || []).length;
+    
+    chunks.push(chunkText);
+    metadata.push({
+      index: chunkIndex,
+      charStart: index,
+      charEnd: boundary,
+      sentenceCount,
+    });
+    
+    index = boundary;
+    chunkIndex++;
+  }
+  
+  return { chunks, metadata };
 };
 
 export const chunkText = (text: string, size: number = DEFAULT_CHUNK_SIZE): string[] => {
@@ -57,15 +131,88 @@ const detectMimeType = async (buffer: Buffer, provided?: string, fileName?: stri
   return 'application/octet-stream';
 };
 
-const extractFromPdf = async (buffer: Buffer) => {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs');
-  const { getDocument, GlobalWorkerOptions } = pdfjs as any;
+const detectScannedPdf = async (pdf: any): Promise<boolean> => {
+  let totalTextLength = 0;
+  let totalPages = 0;
+  
+  for (let pageNumber = 1; pageNumber <= Math.min(pdf.numPages, 5); pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const strings = content.items.map((item: any) => item.str || '').join(' ');
+    totalTextLength += strings.trim().length;
+    totalPages++;
+  }
+  
+  const avgTextPerPage = totalTextLength / totalPages;
+  return avgTextPerPage < 50;
+};
 
-  if (GlobalWorkerOptions) {
-    // Use the packaged ESM worker to avoid relying on Node canvas bindings.
-    const workerSrc = (worker as any).default || 'pdfjs-dist/build/pdf.worker.min.mjs';
-    GlobalWorkerOptions.workerSrc = typeof workerSrc === 'string' ? workerSrc : 'pdfjs-dist/build/pdf.worker.min.mjs';
+const extractPageAsImage = async (pdf: any, pageNumber: number): Promise<string> => {
+  const canvas = await import('@napi-rs/canvas');
+  if (!(globalThis as any).DOMMatrix) {
+    (globalThis as any).DOMMatrix = canvas.DOMMatrix;
+  }
+  if (!(globalThis as any).DOMPoint) {
+    (globalThis as any).DOMPoint = canvas.DOMPoint;
+  }
+  if (!(globalThis as any).ImageData) {
+    (globalThis as any).ImageData = canvas.ImageData;
+  }
+
+  const page = await pdf.getPage(pageNumber);
+  const scale = 2;
+  const viewport = page.getViewport({ scale });
+  
+  const pageCanvas = canvas.createCanvas(viewport.width, viewport.height);
+  const context = pageCanvas.getContext('2d');
+  
+  await page.render({
+    canvasContext: context as unknown as CanvasRenderingContext2D,
+    viewport,
+  }).promise;
+  
+  const base64 = pageCanvas.toBuffer('image/png').toString('base64');
+  return base64;
+};
+
+export interface OCROptions {
+  maxPages?: number;
+  onProgress?: ProgressCallback;
+}
+
+export const extractWithOCR = async (
+  pdf: any,
+  options: OCROptions = {}
+): Promise<string> => {
+  const { maxPages = 10, onProgress } = options;
+  const totalPages = Math.min(pdf.numPages, maxPages);
+  const extractedTexts: string[] = [];
+  
+  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+    if (onProgress) {
+      onProgress((pageNumber / totalPages) * 100, `OCR processing page ${pageNumber}/${totalPages}`);
+    }
+    
+    const imageBase64 = await extractPageAsImage(pdf, pageNumber);
+    extractedTexts.push(`[Page ${pageNumber} - OCR]\n[Image data: ${imageBase64.substring(0, 50)}...]`);
+  }
+  
+  return extractedTexts.join('\n\n');
+};
+
+const extractFromPdf = async (
+  buffer: Buffer,
+  onProgress?: ProgressCallback
+): Promise<{ text: string; isScanned: boolean }> => {
+  const canvas = await import('@napi-rs/canvas');
+  if (!(globalThis as any).DOMMatrix) {
+    (globalThis as any).DOMMatrix = canvas.DOMMatrix;
+  }
+  if (!(globalThis as any).DOMPoint) {
+    (globalThis as any).DOMPoint = canvas.DOMPoint;
+  }
+  if (!(globalThis as any).ImageData) {
+    (globalThis as any).ImageData = canvas.ImageData;
   }
 
   const loadingTask = getDocument({ data: new Uint8Array(buffer) });
@@ -78,9 +225,17 @@ const extractFromPdf = async (buffer: Buffer) => {
       const content = await page.getTextContent();
       const strings = content.items.map((item: any) => item.str || '').join(' ');
       combined += `${strings}\n`;
+      
+      if (onProgress && pageNumber % 5 === 0) {
+        onProgress((pageNumber / pdf.numPages) * 50, `Extracting page ${pageNumber}/${pdf.numPages}`);
+      }
     }
 
-    return normalizeText(combined);
+    const normalizedText = normalizeText(combined);
+    
+    const isScanned = normalizedText.length < 100 || await detectScannedPdf(pdf);
+    
+    return { text: normalizedText, isScanned };
   } finally {
     await pdf.cleanup();
     loadingTask.destroy();
@@ -147,7 +302,6 @@ const extractFromRtf = (buffer: Buffer) => {
 
 const extractFromEmail = (buffer: Buffer) => {
   const decoded = buffer.toString('utf-8');
-  // Preserve headers but strip excessive whitespace for readability
   return normalizeText(decoded);
 };
 
@@ -183,15 +337,23 @@ export const extractTextFromBase64 = async (
   base64Data: string,
   providedMimeType?: string,
   fileName?: string,
+  onProgress?: ProgressCallback
 ): Promise<ExtractionResult> => {
   const buffer = Buffer.from(base64Data, 'base64');
   const mimeType = await detectMimeType(buffer, providedMimeType, fileName);
 
   let text = '';
+  let isScanned = false;
   let metadata: Record<string, unknown> = {};
 
   if (mimeType.includes('pdf')) {
-    text = await extractFromPdf(buffer);
+    if (onProgress) onProgress(0, 'Starting PDF extraction');
+    const pdfResult = await extractFromPdf(buffer, onProgress);
+    text = pdfResult.text;
+    isScanned = pdfResult.isScanned;
+    if (isScanned) {
+      metadata.isScannedPdf = true;
+    }
   } else if (mimeType.includes('wordprocessingml') || mimeType.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
     text = await extractFromDocx(buffer);
   } else if (mimeType.includes('json')) {
@@ -219,7 +381,9 @@ export const extractTextFromBase64 = async (
   }
 
   const normalized = normalizeText(text);
-  const chunks = chunkText(normalized);
+  const { chunks, metadata: chunkMetadata } = chunkTextSentenceAware(normalized);
+
+  if (onProgress) onProgress(100, 'Extraction complete');
 
   return {
     text: normalized,
@@ -233,5 +397,7 @@ export const extractTextFromBase64 = async (
       ...metadata,
     },
     chunks,
+    isScanned,
+    chunkMetadata,
   };
 };

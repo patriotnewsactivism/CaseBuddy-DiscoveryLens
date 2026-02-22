@@ -1,30 +1,24 @@
 import { GoogleGenAI, Schema, Type } from '@google/genai';
 import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
-import { transcribeWithAssembly } from './assemblyTranscriber';
+import { transcodeToMonoWav } from './mediaTranscoder';
+import { withRateLimit, estimateTokensForRequest } from './rateLimiter';
+import { analysisCache, LRUCache } from './cache';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 const ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.0-pro-exp-02-05';
 const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || ANALYSIS_MODEL;
+const TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.0-flash-001';
+
+const ENABLE_CACHING = process.env.GEMINI_ENABLE_CACHE !== 'false';
+const ENABLE_RATE_LIMITING = process.env.GEMINI_ENABLE_RATE_LIMIT !== 'false';
+const CACHE_TTL_MS = parseInt(process.env.GEMINI_CACHE_TTL_MS || '3600000', 10);
 
 interface TranscribeInput {
-  input: Buffer | string;
+  base64Data: string;
   mimeType: string;
   fileName: string;
   batesNumber: string;
-  isBase64?: boolean;
-}
-
-interface AnalyzeInput {
-  base64Data?: string;
-  mimeType?: string;
-  fileName: string;
-  batesNumber: string;
-  fileType: string;
-  casePerspective?: string;
-  textContent?: string;
-  textChunks?: string[];
-  metadata?: Record<string, unknown>;
 }
 
 interface ChatFileContext {
@@ -58,14 +52,103 @@ const withModelFallback = async <T>(
   }
 };
 
+const createTranscriptionCacheKey = (
+  batesNumber: string,
+  fileName: string,
+  audioHash: string
+): string => {
+  return LRUCache.createKey('transcribe', batesNumber, fileName, audioHash);
+};
+
+const createAnalysisCacheKey = (
+  batesNumber: string,
+  contentHash: string,
+  casePerspective?: string
+): string => {
+  return LRUCache.createKey('analyze', batesNumber, contentHash, casePerspective || 'default');
+};
+
+const createChatCacheKey = (
+  query: string,
+  filesHash: string,
+  casePerspective?: string
+): string => {
+  return LRUCache.createKey('chat', query, filesHash, casePerspective || 'default');
+};
+
 export async function transcribeAudioServer({
-  input,
+  base64Data,
   mimeType,
   fileName,
   batesNumber,
-  isBase64 = true,
 }: TranscribeInput) {
-  return transcribeWithAssembly({ input, mimeType, fileName, batesNumber, isBase64 });
+  const prompt = `
+    You are transcribing audio/video evidence for legal discovery.
+    Bates Number: ${batesNumber}
+    Filename: ${fileName}
+
+    INSTRUCTIONS:
+    - Provide a COMPLETE, ACCURATE, VERBATIM transcription of all spoken content
+    - Include speaker labels if multiple speakers are detected (e.g., "Speaker 1:", "Speaker 2:")
+    - Include timestamps in format [MM:SS] at regular intervals
+    - Note any significant non-verbal sounds in brackets [door slam], [phone rings], etc.
+    - Do NOT summarize or paraphrase - transcribe every word spoken
+    - If audio is unclear, mark as [inaudible]
+
+    Return ONLY the transcription text. Do not add commentary or analysis.
+  `;
+
+  const sourceBuffer = Buffer.from(base64Data, 'base64');
+  const { audioBuffer, audioMimeType } = await transcodeToMonoWav({ inputBuffer: sourceBuffer, mimeType });
+  
+  const audioHash = LRUCache.hashContent(audioBuffer);
+  const cacheKey = createTranscriptionCacheKey(batesNumber, fileName, audioHash);
+
+  const cached = await analysisCache.getCachedAnalysis<string>(cacheKey);
+  if (cached !== null) {
+    return cached;
+  }
+
+  const response = await withModelFallback(TRANSCRIBE_MODEL, async chosenModel => {
+    if (ENABLE_RATE_LIMITING) {
+      return withRateLimit(chosenModel, () =>
+        ai.models.generateContent({
+          model: chosenModel,
+          contents: {
+            parts: [
+              { inlineData: { data: audioBuffer.toString('base64'), mimeType: audioMimeType } },
+              { text: prompt }
+            ]
+          },
+          config: {
+            systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+            maxOutputTokens: 2048,
+            responseMimeType: 'text/plain',
+          }
+        })
+      );
+    }
+    return ai.models.generateContent({
+      model: chosenModel,
+      contents: {
+        parts: [
+          { inlineData: { data: audioBuffer.toString('base64'), mimeType: audioMimeType } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        systemInstruction: 'You are a professional legal transcription service. Provide accurate, verbatim transcriptions with timestamps and speaker labels.',
+        maxOutputTokens: 2048,
+        responseMimeType: 'text/plain',
+      }
+    });
+  });
+
+  const result = response.text || '[Transcription failed]';
+  
+  analysisCache.cacheAnalysis(cacheKey, result, CACHE_TTL_MS);
+  
+  return result;
 }
 
 export async function analyzeFileServer({
@@ -78,16 +161,39 @@ export async function analyzeFileServer({
   textContent,
   textChunks,
   metadata,
-}: AnalyzeInput) {
+  contentHash,
+}: {
+  base64Data?: string;
+  mimeType?: string;
+  fileName: string;
+  batesNumber: string;
+  fileType: string;
+  casePerspective?: string;
+  textContent?: string;
+  textChunks?: string[];
+  metadata?: Record<string, unknown>;
+  contentHash?: string;
+}) {
+  const hashForCache = contentHash || LRUCache.hashContent(
+    textContent || textChunks?.join('') || base64Data || batesNumber + fileName
+  );
+  const cacheKey = createAnalysisCacheKey(batesNumber, hashForCache, casePerspective);
+
+  if (ENABLE_CACHING) {
+    const cached = await analysisCache.getCachedAnalysis<Record<string, unknown>>(cacheKey);
+    if (cached !== null) {
+      return cached;
+    }
+  }
+
   let transcription = '';
   if (!textContent && (fileType === 'AUDIO' || fileType === 'VIDEO') && base64Data && mimeType) {
     try {
       transcription = await transcribeAudioServer({
-        input: base64Data,
+        base64Data,
         mimeType,
         fileName,
         batesNumber,
-        isBase64: true,
       });
     } catch (error) {
       console.error('Transcription failed:', error);
@@ -146,8 +252,23 @@ export async function analyzeFileServer({
     required: ['summary', 'evidenceType', 'entities', 'relevantFacts'],
   };
 
-  const response = await withModelFallback(ANALYSIS_MODEL, async chosenModel =>
-    ai.models.generateContent({
+  const estimatedTokens = estimateTokensForRequest(contentParts);
+
+  const response = await withModelFallback(ANALYSIS_MODEL, async chosenModel => {
+    if (ENABLE_RATE_LIMITING) {
+      return withRateLimit(chosenModel, () =>
+        ai.models.generateContent({
+          model: chosenModel,
+          contents: { parts: contentParts },
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION_ANALYZER,
+            responseMimeType: 'application/json',
+            responseSchema: schema,
+          }
+        }), { estimatedTokens }
+      );
+    }
+    return ai.models.generateContent({
       model: chosenModel,
       contents: { parts: contentParts },
       config: {
@@ -155,13 +276,17 @@ export async function analyzeFileServer({
         responseMimeType: 'application/json',
         responseSchema: schema,
       }
-    })
-  );
+    });
+  });
 
   const analysisResult = response.text ? JSON.parse(response.text) : {};
 
   if (transcription && !analysisResult.transcription) {
     analysisResult.transcription = transcription;
+  }
+
+  if (ENABLE_CACHING) {
+    analysisCache.cacheAnalysis(cacheKey, analysisResult, CACHE_TTL_MS);
   }
 
   return analysisResult;
@@ -181,6 +306,16 @@ export async function chatWithDiscoveryServer(
     contextString += `Key Facts: ${f.relevantFacts.join('; ')}\n`;
   });
 
+  const filesHash = LRUCache.hashContent(contextString);
+  const cacheKey = createChatCacheKey(query, filesHash, casePerspective);
+
+  if (ENABLE_CACHING) {
+    const cached = await analysisCache.getCachedAnalysis<string>(cacheKey);
+    if (cached !== null) {
+      return cached;
+    }
+  }
+
   const perspectiveText =
     casePerspective === 'defense_support'
       ? 'You are assisting defense counsel; highlight items that harm the defense as hostile and items that support the defense as cooperative.'
@@ -198,18 +333,39 @@ export async function chatWithDiscoveryServer(
 
     if (activeFile.transcription && activeFile.transcription.length > 50) {
       contentParts.push({ text: `TRANSCRIPTION OF VIEWED FILE:\n${activeFile.transcription}` });
+    } else if (activeFile.base64Data && activeFile.mimeType) {
+      contentParts.push({
+        inlineData: { data: activeFile.base64Data, mimeType: activeFile.mimeType }
+      });
     }
   }
 
   contentParts.push({ text: `\nUSER QUESTION: ${query}` });
 
-  const response = await withModelFallback(CHAT_MODEL, async chosenModel =>
-    ai.models.generateContent({
+  const estimatedTokens = estimateTokensForRequest(contentParts);
+
+  const response = await withModelFallback(CHAT_MODEL, async chosenModel => {
+    if (ENABLE_RATE_LIMITING) {
+      return withRateLimit(chosenModel, () =>
+        ai.models.generateContent({
+          model: chosenModel,
+          contents: { parts: contentParts },
+          config: { systemInstruction: SYSTEM_INSTRUCTION_CHAT }
+        }), { estimatedTokens }
+      );
+    }
+    return ai.models.generateContent({
       model: chosenModel,
       contents: { parts: contentParts },
       config: { systemInstruction: SYSTEM_INSTRUCTION_CHAT }
-    })
-  );
+    });
+  });
 
-  return response.text || 'I could not generate a response based on the available evidence.';
+  const result = response.text || 'I could not generate a response based on the available evidence.';
+  
+  if (ENABLE_CACHING) {
+    analysisCache.cacheAnalysis(cacheKey, result, CACHE_TTL_MS);
+  }
+  
+  return result;
 }
