@@ -76,6 +76,20 @@ export async function analyzeFileServer({
   metadata?: Record<string, unknown>;
   contentHash?: string;
 }) {
+  console.log('[analyzeFileServer] Starting analysis:', {
+    fileName,
+    batesNumber,
+    fileType,
+    mimeType,
+    hasTextContent: !!textContent,
+    textContentLength: textContent?.length || 0,
+    hasTextChunks: !!textChunks,
+    chunkCount: textChunks?.length || 0,
+    hasBase64Data: !!base64Data,
+    base64DataLength: base64Data?.length || 0,
+    casePerspective,
+  });
+
   const hashForCache = contentHash || LRUCache.hashContent(
     textContent || textChunks?.join('') || base64Data || batesNumber + fileName
   );
@@ -84,8 +98,31 @@ export async function analyzeFileServer({
   if (ENABLE_CACHING) {
     const cached = await analysisCache.getCachedAnalysis<Record<string, unknown>>(cacheKey);
     if (cached !== null) {
+      console.log('[analyzeFileServer] Returning cached result');
       return cached;
     }
+  }
+
+  // Check if we have any content to analyze
+  const hasTextContent = (textContent && textContent.length > 0) || (textChunks && textChunks.length > 0);
+  const isImage = mimeType?.startsWith('image/');
+  const hasBinaryData = base64Data && base64Data.length > 0;
+
+  if (!hasTextContent && !isImage && !hasBinaryData) {
+    console.warn('[analyzeFileServer] No content available for analysis:', {
+      fileName,
+      batesNumber,
+      mimeType,
+    });
+    // Return a minimal analysis result with a warning
+    return {
+      summary: `Unable to extract text content from ${fileName}. The file may be a binary format that requires OCR or transcription.`,
+      evidenceType: 'Uncategorized',
+      entities: [],
+      dates: [],
+      relevantFacts: ['Document content could not be extracted for analysis.'],
+      sentiment: 'Neutral' as const,
+    };
   }
 
   const perspectiveText =
@@ -109,6 +146,8 @@ export async function analyzeFileServer({
     });
   } else if (textContent) {
     contentParts.push(`DOCUMENT CONTENT:\n${textContent}`);
+  } else if (!isImage) {
+    contentParts.push('Note: No text content could be extracted. Provide a general analysis based on file metadata.');
   }
 
   contentParts.push(
@@ -142,6 +181,8 @@ export async function analyzeFileServer({
     };
   }
 
+  console.log('[analyzeFileServer] Sending request to OpenAI, message count:', messages.length);
+  
   const response = await getOpenAIClient().chat.completions.create({
     model: ANALYSIS_MODEL,
     messages,
@@ -150,7 +191,14 @@ export async function analyzeFileServer({
   });
 
   const responseText = response.choices[0]?.message?.content || '{}';
+  console.log('[analyzeFileServer] Received response, length:', responseText.length);
+  
   const analysisResult = JSON.parse(responseText);
+  console.log('[analyzeFileServer] Parsed result:', {
+    hasSummary: !!analysisResult.summary,
+    evidenceType: analysisResult.evidenceType,
+    entityCount: analysisResult.entities?.length || 0,
+  });
 
   if (ENABLE_CACHING) {
     analysisCache.cacheAnalysis(cacheKey, analysisResult, CACHE_TTL_MS);
