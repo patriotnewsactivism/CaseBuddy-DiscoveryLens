@@ -164,30 +164,10 @@ export const extractWithOCR = async (
   throw new Error('Local OCR not available. Use Azure OCR for scanned PDFs.');
 };
 
-const setupPdfjsPolyfills = async (): Promise<boolean> => {
-  try {
-    const canvas = await import('@napi-rs/canvas');
-    if (!(globalThis as any).DOMMatrix) {
-      (globalThis as any).DOMMatrix = canvas.DOMMatrix;
-    }
-    if (!(globalThis as any).DOMPoint) {
-      (globalThis as any).DOMPoint = canvas.DOMPoint;
-    }
-    if (!(globalThis as any).ImageData) {
-      (globalThis as any).ImageData = canvas.ImageData;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 const extractFromPdf = async (
   buffer: Buffer,
   onProgress?: ProgressCallback
 ): Promise<{ text: string; isScanned: boolean }> => {
-  await setupPdfjsPolyfills();
-
   const loadingTask = getDocument({ data: new Uint8Array(buffer) });
   const pdf = await loadingTask.promise;
 
