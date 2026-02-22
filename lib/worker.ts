@@ -333,6 +333,10 @@ class JobWorker {
 
     this.onProgress?.(job.id, 10, 'Starting transcription');
 
+    if (!document.storage_path) {
+      throw new Error(`Document has no storage_path: ${job.document_id}`);
+    }
+
     const { data: fileData, error: storageError } = await supabase.storage
       .from('documents')
       .download(document.storage_path);
@@ -349,9 +353,9 @@ class JobWorker {
     const { transcribeAudioServer } = await import('./geminiServer');
     const transcription = await transcribeAudioServer({
       base64Data,
-      mimeType: document.mime_type,
+      mimeType: document.mime_type || 'audio/mpeg',
       fileName: document.name,
-      batesNumber: document.bates_formatted,
+      batesNumber: document.bates_formatted || 'UNKNOWN',
     });
 
     this.onProgress?.(job.id, 80, 'Saving transcription');
