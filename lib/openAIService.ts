@@ -2,9 +2,19 @@ import OpenAI from 'openai';
 import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
 import { analysisCache, LRUCache } from './cache';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let _openai: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!_openai) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is not set. Please add your OpenAI API key to .env');
+    }
+    _openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return _openai;
+}
 
 const ANALYSIS_MODEL = process.env.OPENAI_ANALYSIS_MODEL || 'gpt-4o';
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-4o';
@@ -122,7 +132,6 @@ export async function analyzeFileServer({
     },
   ];
 
-  // Handle image files with vision
   if (base64Data && mimeType?.startsWith('image/')) {
     messages[1] = {
       role: 'user',
@@ -133,7 +142,7 @@ export async function analyzeFileServer({
     };
   }
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAIClient().chat.completions.create({
     model: ANALYSIS_MODEL,
     messages,
     max_tokens: 4096,
@@ -181,8 +190,6 @@ export async function chatWithDiscoveryServer(
         ? 'You are assisting a plaintiff/litigator; treat items harmful to the plaintiff as hostile and those supporting the plaintiff as cooperative.'
         : 'You are reviewing materials in your own case; align hostility/friendliness to the user perspective.';
 
-  const userContent: string | OpenAI.ChatCompletionContentPart[] = [];
-
   const textContent = [
     `CASE PERSPECTIVE: ${perspectiveText}`,
     contextString,
@@ -194,7 +201,6 @@ export async function chatWithDiscoveryServer(
     if (activeFile.transcription && activeFile.transcription.length > 50) {
       textContent.push(`TRANSCRIPTION OF VIEWED FILE:\n${activeFile.transcription}`);
     } else if (activeFile.base64Data && activeFile.mimeType?.startsWith('image/')) {
-      // Handle active image file
       const imageContent: OpenAI.ChatCompletionContentPart[] = [
         { type: 'text', text: textContent.join('\n\n') },
         { type: 'image_url', image_url: { url: `data:${activeFile.mimeType};base64,${activeFile.base64Data}` } },
@@ -205,7 +211,7 @@ export async function chatWithDiscoveryServer(
         { role: 'user', content: imageContent },
       ];
 
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAIClient().chat.completions.create({
         model: CHAT_MODEL,
         messages,
         max_tokens: 4096,
@@ -228,7 +234,7 @@ export async function chatWithDiscoveryServer(
     { role: 'user', content: textContent.join('\n\n') },
   ];
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAIClient().chat.completions.create({
     model: CHAT_MODEL,
     messages,
     max_tokens: 4096,
