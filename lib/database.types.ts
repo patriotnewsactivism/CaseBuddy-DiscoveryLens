@@ -18,69 +18,97 @@ export type Database = {
     Tables: {
       documents: {
         Row: {
-          analysis: Json | null;
-          bates_formatted: string;
-          bates_number: number;
-          bates_prefix: string;
+          id: string;
+          case_id: string | null;
+          user_id: string | null;
+          project_id: string | null;
+          name: string;
+          file_url: string | null;
+          file_type: string | null;
+          file_size: number | null;
+          bates_number: string | null;
+          bates_prefix: string | null;
+          bates_formatted: string | null;
+          mime_type: string | null;
+          storage_path: string | null;
+          summary: string | null;
+          key_facts: string[] | null;
+          favorable_findings: string[] | null;
+          adverse_findings: string[] | null;
+          action_items: string[] | null;
+          ai_analyzed: boolean;
+          status: string;
+          extracted_text: string | null;
+          text_chunks: Json | null;
+          processing_progress: number;
           content_hash: string | null;
           created_at: string;
-          error_message: string | null;
-          extracted_text: string | null;
-          file_size: number | null;
-          file_type: string;
-          id: string;
-          mime_type: string;
-          name: string;
-          processing_progress: number;
-          project_id: string;
-          status: 'processing' | 'complete' | 'failed';
-          storage_path: string;
-          text_chunks: Json | null;
           updated_at: string;
         };
         Insert: {
-          analysis?: Json | null;
-          bates_formatted: string;
-          bates_number: number;
-          bates_prefix?: string;
+          id?: string;
+          case_id?: string | null;
+          user_id?: string | null;
+          project_id?: string | null;
+          name: string;
+          file_url?: string | null;
+          file_type?: string | null;
+          file_size?: number | null;
+          bates_number?: string | null;
+          bates_prefix?: string | null;
+          bates_formatted?: string | null;
+          mime_type?: string | null;
+          storage_path?: string | null;
+          summary?: string | null;
+          key_facts?: string[] | null;
+          favorable_findings?: string[] | null;
+          adverse_findings?: string[] | null;
+          action_items?: string[] | null;
+          ai_analyzed?: boolean;
+          status?: string;
+          extracted_text?: string | null;
+          text_chunks?: Json | null;
+          processing_progress?: number;
           content_hash?: string | null;
           created_at?: string;
-          error_message?: string | null;
-          extracted_text?: string | null;
-          file_size?: number | null;
-          file_type: string;
-          id?: string;
-          mime_type: string;
-          name: string;
-          processing_progress?: number;
-          project_id: string;
-          status?: 'processing' | 'complete' | 'failed';
-          storage_path: string;
-          text_chunks?: Json | null;
           updated_at?: string;
         };
         Update: {
-          analysis?: Json | null;
-          bates_formatted?: string;
-          bates_number?: number;
-          bates_prefix?: string;
+          id?: string;
+          case_id?: string | null;
+          user_id?: string | null;
+          project_id?: string | null;
+          name?: string;
+          file_url?: string | null;
+          file_type?: string | null;
+          file_size?: number | null;
+          bates_number?: string | null;
+          bates_prefix?: string | null;
+          bates_formatted?: string | null;
+          mime_type?: string | null;
+          storage_path?: string | null;
+          summary?: string | null;
+          key_facts?: string[] | null;
+          favorable_findings?: string[] | null;
+          adverse_findings?: string[] | null;
+          action_items?: string[] | null;
+          ai_analyzed?: boolean;
+          status?: string;
+          extracted_text?: string | null;
+          text_chunks?: Json | null;
+          processing_progress?: number;
           content_hash?: string | null;
           created_at?: string;
-          error_message?: string | null;
-          extracted_text?: string | null;
-          file_size?: number | null;
-          file_type?: string;
-          id?: string;
-          mime_type?: string;
-          name?: string;
-          processing_progress?: number;
-          project_id?: string;
-          status?: 'processing' | 'complete' | 'failed';
-          storage_path?: string;
-          text_chunks?: Json | null;
           updated_at?: string;
         };
         Relationships: [
+          {
+            columns: ['case_id'];
+            foreignKeyName: 'documents_case_id_fkey';
+            referencedColumns: ['id'];
+            referencedRelation: 'cases';
+            relationType: 'many-to-one';
+          },
           {
             columns: ['project_id'];
             foreignKeyName: 'documents_project_id_fkey';
@@ -93,11 +121,11 @@ export type Database = {
       job_queue: {
         Row: {
           id: string;
-          project_id: string;
+          project_id: string | null;
           document_id: string | null;
-          job_type: 'extract' | 'analyze' | 'transcribe';
+          job_type: string;
           priority: number;
-          status: 'pending' | 'processing' | 'complete' | 'failed';
+          status: string;
           attempts: number;
           max_attempts: number;
           error_message: string | null;
@@ -107,11 +135,11 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          project_id: string;
+          project_id?: string | null;
           document_id?: string | null;
-          job_type: 'extract' | 'analyze' | 'transcribe';
+          job_type: string;
           priority?: number;
-          status?: 'pending' | 'processing' | 'complete' | 'failed';
+          status?: string;
           attempts?: number;
           max_attempts?: number;
           error_message?: string | null;
@@ -121,11 +149,11 @@ export type Database = {
         };
         Update: {
           id?: string;
-          project_id?: string;
+          project_id?: string | null;
           document_id?: string | null;
-          job_type?: 'extract' | 'analyze' | 'transcribe';
+          job_type?: string;
           priority?: number;
-          status?: 'pending' | 'processing' | 'complete' | 'failed';
+          status?: string;
           attempts?: number;
           max_attempts?: number;
           error_message?: string | null;
@@ -152,30 +180,81 @@ export type Database = {
       };
       projects: {
         Row: {
-          bates_counter: number;
-          bates_prefix: string;
-          created_at: string;
-          description: string | null;
           id: string;
           name: string;
+          description: string | null;
+          bates_prefix: string;
+          bates_counter: number;
+          created_at: string;
           updated_at: string;
         };
         Insert: {
-          bates_counter?: number;
-          bates_prefix?: string;
-          created_at?: string;
-          description?: string | null;
           id?: string;
           name: string;
+          description?: string | null;
+          bates_prefix?: string;
+          bates_counter?: number;
+          created_at?: string;
           updated_at?: string;
         };
         Update: {
-          bates_counter?: number;
-          bates_prefix?: string;
-          created_at?: string;
-          description?: string | null;
           id?: string;
           name?: string;
+          description?: string | null;
+          bates_prefix?: string;
+          bates_counter?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      cases: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          name: string;
+          case_type: string | null;
+          client_name: string | null;
+          status: string;
+          representation: string;
+          case_theory: string | null;
+          key_issues: string[] | null;
+          winning_factors: string[] | null;
+          next_deadline: string | null;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          name: string;
+          case_type?: string | null;
+          client_name?: string | null;
+          status?: string;
+          representation?: string;
+          case_theory?: string | null;
+          key_issues?: string[] | null;
+          winning_factors?: string[] | null;
+          next_deadline?: string | null;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string | null;
+          name?: string;
+          case_type?: string | null;
+          client_name?: string | null;
+          status?: string;
+          representation?: string;
+          case_theory?: string | null;
+          key_issues?: string[] | null;
+          winning_factors?: string[] | null;
+          next_deadline?: string | null;
+          notes?: string | null;
+          created_at?: string;
           updated_at?: string;
         };
         Relationships: [];
@@ -185,10 +264,16 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      cleanup_old_jobs: {
+        Args: {
+          days_to_keep?: number;
+        };
+        Returns: void;
+      };
     };
     Enums: {
-      [_ in never]: never;
+      case_status: 'active' | 'discovery' | 'pending' | 'review' | 'closed' | 'archived';
+      representation_type: 'plaintiff' | 'defendant' | 'executor' | 'petitioner' | 'respondent' | 'other';
     };
     CompositeTypes: {
       [_ in never]: never;
