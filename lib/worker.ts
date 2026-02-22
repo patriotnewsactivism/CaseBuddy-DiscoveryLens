@@ -288,7 +288,7 @@ class JobWorker {
 
     const analysis = await analyzeFileServer({
       fileName: document.name,
-      batesNumber: document.bates_formatted || undefined,
+      batesNumber: document.bates_formatted || 'UNKNOWN',
       fileType: document.file_type || 'DOCUMENT',
       casePerspective,
       textContent: document.extracted_text || undefined,
