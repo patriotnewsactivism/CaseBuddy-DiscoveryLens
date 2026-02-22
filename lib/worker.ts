@@ -183,6 +183,10 @@ class JobWorker {
 
     this.onProgress?.(job.id, 10, 'Starting text extraction');
 
+    if (!document.storage_path) {
+      throw new Error(`Document has no storage_path: ${job.document_id}`);
+    }
+
     const { data: fileData, error: storageError } = await supabase.storage
       .from('documents')
       .download(document.storage_path);

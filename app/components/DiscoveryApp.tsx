@@ -136,9 +136,9 @@ export default function App() {
   };
 
   const processFileAnalysis = async (file: DiscoveryFile) => {
+    let analysisTarget = file;
     try {
       // Step 1: Save file to cloud storage first
-      let analysisTarget = file;
       if (currentProject) {
         try {
           const { documentId, storagePath, signedUrl } = await saveDocumentToCloud(file, currentProject.id);
