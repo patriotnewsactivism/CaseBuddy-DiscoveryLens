@@ -3,12 +3,8 @@ import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import { lookup as mimeLookup } from 'mime-types';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfParse from 'pdf-parse';
 import { extractTextWithAzureOCR, isAzureOCRConfigured } from './azureOCR';
-
-if (!GlobalWorkerOptions.workerSrc) {
-  GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.296/legacy/build/pdf.worker.min.mjs`;
-}
 
 export interface ExtractionResult {
   text: string;
@@ -132,62 +128,22 @@ const detectMimeType = async (buffer: Buffer, provided?: string, fileName?: stri
   return 'application/octet-stream';
 };
 
-const detectScannedPdf = async (pdf: any): Promise<boolean> => {
-  let totalTextLength = 0;
-  let totalPages = 0;
-  
-  for (let pageNumber = 1; pageNumber <= Math.min(pdf.numPages, 5); pageNumber++) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const strings = content.items.map((item: any) => item.str || '').join(' ');
-    totalTextLength += strings.trim().length;
-    totalPages++;
-  }
-  
-  const avgTextPerPage = totalTextLength / totalPages;
-  return avgTextPerPage < 50;
-};
-
-const extractPageAsImage = async (pdf: any, pageNumber: number): Promise<string> => {
-  throw new Error('Local OCR not available. Use Azure OCR for scanned PDFs.');
-};
-
-export interface OCROptions {
-  maxPages?: number;
-  onProgress?: ProgressCallback;
-}
-
-export const extractWithOCR = async (
-  pdf: any,
-  options: OCROptions = {}
-): Promise<string> => {
-  throw new Error('Local OCR not available. Use Azure OCR for scanned PDFs.');
-};
-
 const extractFromPdf = async (
   buffer: Buffer,
   onProgress?: ProgressCallback
 ): Promise<{ text: string; isScanned: boolean }> => {
-  const loadingTask = getDocument({ data: new Uint8Array(buffer) });
-  const pdf = await loadingTask.promise;
-
+  if (onProgress) onProgress(0, 'Starting PDF extraction');
+  
   try {
-    let combined = '';
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-      const page = await pdf.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const strings = content.items.map((item: any) => item.str || '').join(' ');
-      combined += `${strings}\n`;
-      
-      if (onProgress && pageNumber % 5 === 0) {
-        onProgress((pageNumber / pdf.numPages) * 50, `Extracting page ${pageNumber}/${pdf.numPages}`);
-      }
-    }
-
-    const normalizedText = normalizeText(combined);
+    const data = await pdfParse(buffer);
+    const text = data.text || '';
+    const normalizedText = normalizeText(text);
     
-    const isScanned = normalizedText.length < 100 || await detectScannedPdf(pdf);
-
+    if (onProgress) onProgress(50, 'PDF text extracted');
+    
+    const isScanned = normalizedText.length < 100;
+    const pageCount = data.numpages || 1;
+    
     if (isScanned && isAzureOCRConfigured()) {
       if (onProgress) {
         onProgress(50, 'PDF appears to be scanned, using Azure OCR...');
@@ -209,10 +165,15 @@ const extractFromPdf = async (
       }
     }
     
-    return { text: normalizedText, isScanned };
-  } finally {
-    await pdf.cleanup();
-    loadingTask.destroy();
+    if (onProgress) onProgress(100, 'Extraction complete');
+    
+    return { 
+      text: normalizedText, 
+      isScanned 
+    };
+  } catch (error) {
+    console.error('PDF extraction error:', error);
+    throw new Error(`Failed to extract PDF text: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
