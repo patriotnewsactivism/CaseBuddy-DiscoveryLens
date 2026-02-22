@@ -62,11 +62,10 @@ export async function POST(request: NextRequest) {
     }
 
     const transcription = await transcribeAudioServer({
-      input: buffer,
+      base64Data: buffer.toString('base64'),
       mimeType,
       fileName,
       batesNumber,
-      isBase64: false,
     });
 
     return NextResponse.json({ transcription });

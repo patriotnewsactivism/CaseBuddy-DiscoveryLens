@@ -42,6 +42,8 @@ export type Database = {
           text_chunks: Json | null;
           processing_progress: number;
           content_hash: string | null;
+          analysis: Json | null;
+          error_message: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -70,6 +72,8 @@ export type Database = {
           text_chunks?: Json | null;
           processing_progress?: number;
           content_hash?: string | null;
+          analysis?: Json | null;
+          error_message?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -98,6 +102,8 @@ export type Database = {
           text_chunks?: Json | null;
           processing_progress?: number;
           content_hash?: string | null;
+          analysis?: Json | null;
+          error_message?: string | null;
           created_at?: string;
           updated_at?: string;
         };
