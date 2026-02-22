@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import { lookup as mimeLookup } from 'mime-types';
-import pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import { extractTextWithAzureOCR, isAzureOCRConfigured } from './azureOCR';
 
 export interface ExtractionResult {
@@ -135,14 +135,16 @@ const extractFromPdf = async (
   if (onProgress) onProgress(0, 'Starting PDF extraction');
   
   try {
-    const data = await pdfParse(buffer);
-    const text = data.text || '';
-    const normalizedText = normalizeText(text);
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
     
-    if (onProgress) onProgress(50, 'PDF text extracted');
+    const text = result.text || '';
+    const normalizedText = normalizeText(text);
+    const pageCount = result.total || 1;
+    
+    if (onProgress) onProgress(50, `Extracted text from ${pageCount} pages`);
     
     const isScanned = normalizedText.length < 100;
-    const pageCount = data.numpages || 1;
     
     if (isScanned && isAzureOCRConfigured()) {
       if (onProgress) {
@@ -156,6 +158,7 @@ const extractFromPdf = async (
           }
         });
         
+        await parser.destroy();
         return { 
           text: ocrResult.text, 
           isScanned: true 
@@ -166,6 +169,8 @@ const extractFromPdf = async (
     }
     
     if (onProgress) onProgress(100, 'Extraction complete');
+    
+    await parser.destroy();
     
     return { 
       text: normalizedText, 
