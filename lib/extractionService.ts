@@ -4,6 +4,7 @@ import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import { lookup as mimeLookup } from 'mime-types';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { extractTextWithAzureOCR, isAzureOCRConfigured } from './azureOCR';
 
 if (!GlobalWorkerOptions.workerSrc) {
   GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.296/legacy/build/pdf.worker.min.mjs`;
@@ -234,6 +235,27 @@ const extractFromPdf = async (
     const normalizedText = normalizeText(combined);
     
     const isScanned = normalizedText.length < 100 || await detectScannedPdf(pdf);
+
+    if (isScanned && isAzureOCRConfigured()) {
+      if (onProgress) {
+        onProgress(50, 'PDF appears to be scanned, using Azure OCR...');
+      }
+      
+      try {
+        const ocrResult = await extractTextWithAzureOCR(buffer, 'application/pdf', (progress, stage) => {
+          if (onProgress) {
+            onProgress(50 + progress * 0.5, stage);
+          }
+        });
+        
+        return { 
+          text: ocrResult.text, 
+          isScanned: true 
+        };
+      } catch (ocrError) {
+        console.warn('Azure OCR failed, falling back to extracted text:', ocrError);
+      }
+    }
     
     return { text: normalizedText, isScanned };
   } finally {

@@ -36,7 +36,6 @@ const DEFAULT_CONFIG: RateLimiterConfig = {
   models: {
     'gemini-2.0-pro-exp-02-05': { requestsPerMinute: 10, tokensPerMinute: 1000000 },
     'gemini-2.0-flash-001': { requestsPerMinute: 15, tokensPerMinute: 2000000 },
-    'gemini-2.0-flash-thinking-exp-1219': { requestsPerMinute: 15, tokensPerMinute: 2000000 },
   },
   defaultLimits: { requestsPerMinute: 10, tokensPerMinute: 500000 },
 };

@@ -41,7 +41,7 @@ type ContentPart = { text?: string; inlineData?: { data: string; mimeType: strin
 const withModelFallback = async <T>(
   model: string,
   generator: (chosenModel: string) => Promise<T>,
-  fallbackModel = 'gemini-2.0-flash-thinking-exp-1219'
+  fallbackModel = 'gemini-2.0-flash-001'
 ): Promise<T> => {
   try {
     return await generator(model);
