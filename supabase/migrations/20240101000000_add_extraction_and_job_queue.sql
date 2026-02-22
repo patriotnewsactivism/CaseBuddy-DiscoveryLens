@@ -1,25 +1,51 @@
 -- Migration: Add extraction and job queue support
 -- Created: 2024-01-01
 -- Description: Adds columns for text extraction, content hashing, and job queue for background processing
+-- 
+-- IMPORTANT: This migration is idempotent and safe to run on existing databases
 
 -- ============================================================================
 -- DOCUMENTS TABLE UPDATES
 -- ============================================================================
 
--- Add columns for extracted text content
-ALTER TABLE documents 
-  ADD COLUMN IF NOT EXISTS extracted_text text,
-  ADD COLUMN IF NOT EXISTS text_chunks jsonb,
-  ADD COLUMN IF NOT EXISTS processing_progress int DEFAULT 0 CHECK (processing_progress >= 0 AND processing_progress <= 100),
-  ADD COLUMN IF NOT EXISTS content_hash text;
+-- Add columns for extracted text content (only if they don't exist)
+DO $$
+BEGIN
+  -- Add extracted_text column if it doesn't exist
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'extracted_text') THEN
+    ALTER TABLE documents ADD COLUMN extracted_text text;
+  END IF;
+  
+  -- Add text_chunks column if it doesn't exist
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'text_chunks') THEN
+    ALTER TABLE documents ADD COLUMN text_chunks jsonb;
+  END IF;
+  
+  -- Add processing_progress column if it doesn't exist
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'processing_progress') THEN
+    ALTER TABLE documents ADD COLUMN processing_progress int DEFAULT 0;
+    ALTER TABLE documents ADD CONSTRAINT check_processing_progress CHECK (processing_progress >= 0 AND processing_progress <= 100);
+  END IF;
+  
+  -- Add content_hash column if it doesn't exist
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'content_hash') THEN
+    ALTER TABLE documents ADD COLUMN content_hash text;
+  END IF;
+END
+$$;
 
--- Add index for content hash lookups (duplicate detection)
+-- Add indexes (these are safe to run multiple times with IF NOT EXISTS)
 CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash) WHERE content_hash IS NOT NULL;
 
--- Add index for project + content hash (duplicate detection within project)
-CREATE INDEX IF NOT EXISTS idx_documents_project_content_hash ON documents(project_id, content_hash) WHERE content_hash IS NOT NULL;
+-- Only create project_content_hash index if project_id column exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'project_id') THEN
+    CREATE INDEX IF NOT EXISTS idx_documents_project_content_hash ON documents(project_id, content_hash) WHERE content_hash IS NOT NULL;
+  END IF;
+END
+$$;
 
--- Add index for status filtering
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 
 -- ============================================================================
@@ -28,7 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 
 CREATE TABLE IF NOT EXISTS job_queue (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  project_id uuid REFERENCES projects(id) ON DELETE CASCADE,
   document_id uuid REFERENCES documents(id) ON DELETE SET NULL,
   job_type text NOT NULL CHECK (job_type IN ('extract', 'analyze', 'transcribe')),
   priority int DEFAULT 0,
@@ -41,37 +67,38 @@ CREATE TABLE IF NOT EXISTS job_queue (
   completed_at timestamptz
 );
 
--- Index for fetching pending jobs (ordered by priority then creation time)
+-- Indexes for job_queue
 CREATE INDEX IF NOT EXISTS idx_job_queue_pending ON job_queue(status, priority DESC, created_at) WHERE status = 'pending';
-
--- Index for project-scoped job queries
 CREATE INDEX IF NOT EXISTS idx_job_queue_project ON job_queue(project_id);
-
--- Index for document-scoped job queries
 CREATE INDEX IF NOT EXISTS idx_job_queue_document ON job_queue(document_id) WHERE document_id IS NOT NULL;
-
--- Index for status filtering
 CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status);
 
 -- ============================================================================
 -- ROW LEVEL SECURITY
 -- ============================================================================
 
--- Enable RLS on job_queue
+-- Enable RLS on job_queue (safe to run multiple times)
 ALTER TABLE job_queue ENABLE ROW LEVEL SECURITY;
 
--- Policy: Users can view jobs for projects they have access to
-CREATE POLICY "Users can view job_queue for accessible projects"
-  ON job_queue FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM projects
-      WHERE projects.id = job_queue.project_id
-    )
-  );
-
--- Policy: Service role can manage all jobs (handled by supabase admin client)
--- Note: The service role bypasses RLS, so no additional policy needed
+-- Create policy only if it doesn't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies 
+    WHERE tablename = 'job_queue' 
+    AND policyname = 'Users can view job_queue for accessible projects'
+  ) THEN
+    CREATE POLICY "Users can view job_queue for accessible projects"
+      ON job_queue FOR SELECT
+      USING (
+        EXISTS (
+          SELECT 1 FROM projects
+          WHERE projects.id = job_queue.project_id
+        )
+      );
+  END IF;
+END
+$$;
 
 -- ============================================================================
 -- FUNCTIONS
@@ -91,7 +118,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION create_extraction_job_for_document()
 RETURNS trigger AS $$
 BEGIN
-  IF NEW.status = 'processing' AND OLD.status IS DISTINCT FROM NEW.status THEN
+  IF NEW.status = 'processing' AND (OLD IS NULL OR OLD.status IS DISTINCT FROM NEW.status) THEN
     INSERT INTO job_queue (project_id, document_id, job_type, priority)
     VALUES (NEW.project_id, NEW.id, 'extract', 0);
   END IF;
@@ -99,7 +126,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Trigger to auto-create extraction jobs
+-- Trigger to auto-create extraction jobs (drop first to avoid errors)
 DROP TRIGGER IF EXISTS on_document_created ON documents;
 CREATE TRIGGER on_document_created
   AFTER INSERT ON documents
