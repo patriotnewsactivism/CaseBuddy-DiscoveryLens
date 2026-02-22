@@ -137,12 +137,28 @@ export default function App() {
 
   const processFileAnalysis = async (file: DiscoveryFile) => {
     let analysisTarget = file;
+    console.log('[processFileAnalysis] Starting analysis for:', {
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      hasFile: !!file.file,
+      hasStoragePath: !!file.storagePath,
+      hasSignedUrl: !!file.signedUrl,
+    });
+    
     try {
       // Step 1: Save file to cloud storage first
       if (currentProject) {
         try {
+          console.log('[processFileAnalysis] Saving to cloud storage...');
           const { documentId, storagePath, signedUrl } = await saveDocumentToCloud(file, currentProject.id);
           analysisTarget = { ...file, cloudDocumentId: documentId, storagePath, signedUrl };
+
+          console.log('[processFileAnalysis] Cloud save complete:', {
+            documentId,
+            storagePath,
+            hasSignedUrl: !!signedUrl,
+          });
 
           // Update file with cloud storage info
           setFiles(prev => prev.map(f => {
@@ -152,13 +168,28 @@ export default function App() {
             return f;
           }));
         } catch (storageError) {
-          console.error(`Failed to save ${file.name} to cloud:`, storageError);
+          console.error(`[processFileAnalysis] Failed to save ${file.name} to cloud:`, storageError);
           setSaveError(`Failed to save ${file.name} to cloud storage`);
+          // Continue with analysis using local file
         }
       }
 
       // Step 2: Analyze the file
+      console.log('[processFileAnalysis] Calling analyzeFile with:', {
+        name: analysisTarget.name,
+        hasStoragePath: !!analysisTarget.storagePath,
+        hasSignedUrl: !!analysisTarget.signedUrl,
+        hasFile: !!analysisTarget.file,
+      });
+      
       const analysis: AnalysisData = await analyzeFile(analysisTarget, casePerspective);
+      
+      console.log('[processFileAnalysis] Analysis result:', {
+        name: file.name,
+        hasSummary: !!analysis?.summary,
+        hasEvidenceType: !!analysis?.evidenceType,
+        entityCount: analysis?.entities?.length || 0,
+      });
 
       // Step 3: Update local state
       setFiles(prev => prev.map(f => {
@@ -172,20 +203,26 @@ export default function App() {
       if (currentProject && analysisTarget.cloudDocumentId) {
         try {
           await updateDocumentAnalysis(analysisTarget.cloudDocumentId, analysis);
-          console.log(`Analysis saved to cloud for ${file.name}`);
+          console.log(`[processFileAnalysis] Analysis saved to cloud for ${file.name}`);
         } catch (updateError) {
-          console.error(`Failed to update analysis for ${file.name}:`, updateError);
+          console.error(`[processFileAnalysis] Failed to update analysis for ${file.name}:`, updateError);
         }
       }
     } catch (error) {
-      console.error(`Failed to analyze ${file.name}`, error);
+      console.error(`[processFileAnalysis] Failed to analyze ${file.name}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Analysis failed.';
+      console.error('[processFileAnalysis] Error details:', {
+        message: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      
       setFiles(prev => prev.map(f => {
         if (f.id === file.id) {
           return {
             ...f,
             isProcessing: false,
             analysis: null,
-            analysisError: error instanceof Error ? error.message : 'Analysis failed.',
+            analysisError: errorMessage,
           };
         }
         return f;
@@ -195,7 +232,7 @@ export default function App() {
         try {
           await updateDocumentStatus(analysisTarget.cloudDocumentId, 'failed', 'Analysis failed');
         } catch (statusError) {
-          console.error(`Failed to update cloud status for ${file.name}:`, statusError);
+          console.error(`[processFileAnalysis] Failed to update cloud status for ${file.name}:`, statusError);
         }
       }
     }
