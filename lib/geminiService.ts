@@ -36,12 +36,30 @@ export const buildAnalyzePayload = async (
   discoveryFile: DiscoveryFile,
   casePerspective: CasePerspective
 ): Promise<Record<string, unknown>> => {
-  const extractedText = await extractClientText(discoveryFile.file, discoveryFile.mimeType);
+  let extractedText: string | undefined;
   let base64Data: string | undefined;
 
-  if (!extractedText && !discoveryFile.storagePath) {
+  // Only try to extract text from file if it exists and is a text-based format
+  if (discoveryFile.file) {
+    extractedText = await extractClientText(discoveryFile.file, discoveryFile.mimeType);
+  }
+
+  // Prepare base64 data if we don't have extracted text AND we don't have a storage path
+  // If storagePath exists, the server will download from there
+  if (!extractedText && !discoveryFile.storagePath && discoveryFile.file) {
     base64Data = await readFileAsBase64(discoveryFile.file);
   }
+
+  console.log('[buildAnalyzePayload] Prepared payload:', {
+    hasExtractedText: !!extractedText,
+    extractedTextLength: extractedText?.length || 0,
+    hasBase64Data: !!base64Data,
+    base64DataLength: base64Data?.length || 0,
+    hasStoragePath: !!discoveryFile.storagePath,
+    hasSignedUrl: !!discoveryFile.signedUrl,
+    mimeType: discoveryFile.mimeType,
+    fileName: discoveryFile.name,
+  });
 
   return {
     extractedText,
