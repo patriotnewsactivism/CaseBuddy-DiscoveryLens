@@ -16,6 +16,39 @@ function getOpenAIClient(): OpenAI {
   return _openai;
 }
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const retryWithBackoff = async <T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 5,
+  initialDelayMs: number = 2000
+): Promise<T> => {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      
+      if (error?.status === 429 || error?.message?.includes('429')) {
+        const match = error?.message?.match(/try again in ([\d.]+)s/i);
+        const waitTime = match 
+          ? Math.ceil(parseFloat(match[1]) * 1000) + 500
+          : initialDelayMs * Math.pow(2, attempt);
+        
+        console.log(`[retryWithBackoff] Rate limited, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+        await sleep(waitTime);
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+  
+  throw lastError;
+};
+
 const ANALYSIS_MODEL = process.env.OPENAI_ANALYSIS_MODEL || 'gpt-4o';
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-4o';
 
