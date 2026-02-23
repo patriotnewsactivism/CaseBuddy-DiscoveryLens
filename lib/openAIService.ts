@@ -209,19 +209,19 @@ export async function analyzeFileServer({
       role: 'user',
       content: [
         { type: 'text', text: contentParts.join('\n\n') },
-        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } },
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}`, detail: 'low' } },
       ],
     };
   }
 
   console.log('[analyzeFileServer] Sending request to OpenAI, message count:', messages.length);
   
-  const response = await getOpenAIClient().chat.completions.create({
+  const response = await retryWithBackoff(() => getOpenAIClient().chat.completions.create({
     model: ANALYSIS_MODEL,
     messages,
     max_tokens: 4096,
     response_format: { type: 'json_object' },
-  });
+  }), 5, 3000);
 
   const responseText = response.choices[0]?.message?.content || '{}';
   console.log('[analyzeFileServer] Received response, length:', responseText.length);
@@ -284,7 +284,7 @@ export async function chatWithDiscoveryServer(
     } else if (activeFile.base64Data && activeFile.mimeType?.startsWith('image/')) {
       const imageContent: OpenAI.ChatCompletionContentPart[] = [
         { type: 'text', text: textContent.join('\n\n') },
-        { type: 'image_url', image_url: { url: `data:${activeFile.mimeType};base64,${activeFile.base64Data}` } },
+        { type: 'image_url', image_url: { url: `data:${activeFile.mimeType};base64,${activeFile.base64Data}`, detail: 'low' } },
       ];
       
       const messages: OpenAI.ChatCompletionMessageParam[] = [
@@ -292,11 +292,11 @@ export async function chatWithDiscoveryServer(
         { role: 'user', content: imageContent },
       ];
 
-      const response = await getOpenAIClient().chat.completions.create({
+      const response = await retryWithBackoff(() => getOpenAIClient().chat.completions.create({
         model: CHAT_MODEL,
         messages,
         max_tokens: 4096,
-      });
+      }), 3, 2000);
 
       const result = response.choices[0]?.message?.content || 'I could not generate a response based on the available evidence.';
       
@@ -315,11 +315,11 @@ export async function chatWithDiscoveryServer(
     { role: 'user', content: textContent.join('\n\n') },
   ];
 
-  const response = await getOpenAIClient().chat.completions.create({
+  const response = await retryWithBackoff(() => getOpenAIClient().chat.completions.create({
     model: CHAT_MODEL,
     messages,
     max_tokens: 4096,
-  });
+  }), 3, 2000);
 
   const result = response.choices[0]?.message?.content || 'I could not generate a response based on the available evidence.';
 
