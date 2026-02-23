@@ -44,6 +44,10 @@ export default function App() {
   // Cloud Storage State
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [isInitializingProject, setIsInitializingProject] = useState(false);
+  
+  // Analysis Queue for rate limiting
+  const analysisQueueRef = useRef<DiscoveryFile[]>([]);
+  const isProcessingQueueRef = useRef(false);
 
   // Refs
   const dirInputRef = useRef<HTMLInputElement>(null);
@@ -131,8 +135,8 @@ export default function App() {
     setBatesCounter(currentCounter);
     setIsScanning(false);
 
-    // Trigger analysis for each file independently in parallel
-    newFiles.forEach(f => processFileAnalysis(f));
+    // Queue files for sequential analysis to avoid rate limiting
+    newFiles.forEach(f => queueFileForAnalysis(f));
   };
 
   const processFileAnalysis = async (file: DiscoveryFile) => {
@@ -147,8 +151,11 @@ export default function App() {
     });
     
     try {
-      // Step 1: Save file to cloud storage first
-      if (currentProject) {
+      // Step 1: Save file to cloud storage first (skip for large files > 50MB)
+      const MAX_STORAGE_SIZE = 50 * 1024 * 1024; // 50MB
+      const fileSize = file.file?.size || 0;
+      
+      if (currentProject && fileSize < MAX_STORAGE_SIZE) {
         try {
           console.log('[processFileAnalysis] Saving to cloud storage...');
           const { documentId, storagePath, signedUrl } = await saveDocumentToCloud(file, currentProject.id);
@@ -172,6 +179,8 @@ export default function App() {
           setSaveError(`Failed to save ${file.name} to cloud storage`);
           // Continue with analysis using local file
         }
+      } else if (fileSize >= MAX_STORAGE_SIZE) {
+        console.log(`[processFileAnalysis] Skipping cloud storage for large file (${(fileSize / 1024 / 1024).toFixed(1)}MB)`);
       }
 
       // Step 2: Analyze the file
@@ -238,6 +247,30 @@ export default function App() {
     }
   };
 
+  const processAnalysisQueue = async () => {
+    if (isProcessingQueueRef.current) return;
+    isProcessingQueueRef.current = true;
+
+    while (analysisQueueRef.current.length > 0) {
+      const file = analysisQueueRef.current.shift();
+      if (!file) break;
+      
+      await processFileAnalysis(file);
+      
+      // Small delay between files to avoid rate limiting
+      if (analysisQueueRef.current.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+
+    isProcessingQueueRef.current = false;
+  };
+
+  const queueFileForAnalysis = (file: DiscoveryFile) => {
+    analysisQueueRef.current.push(file);
+    processAnalysisQueue();
+  };
+
   const handleRetryAnalysis = (fileId: string) => {
     const target = files.find(f => f.id === fileId);
     if (!target) return;
@@ -249,7 +282,7 @@ export default function App() {
       return f;
     }));
 
-    processFileAnalysis({ ...target, isProcessing: true, analysis: null, analysisError: null });
+    queueFileForAnalysis({ ...target, isProcessing: true, analysis: null, analysisError: null });
   };
 
   const handleSelectFile = (id: string) => {
