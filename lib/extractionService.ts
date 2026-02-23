@@ -1,3 +1,4 @@
+import 'pdf-parse/worker';
 import { fileTypeFromBuffer } from 'file-type';
 import JSZip from 'jszip';
 import mammoth from 'mammoth';
@@ -5,9 +6,6 @@ import sanitizeHtml from 'sanitize-html';
 import { lookup as mimeLookup } from 'mime-types';
 import { PDFParse } from 'pdf-parse';
 import { extractTextWithAzureOCR, isAzureOCRConfigured } from './azureOCR';
-
-// Configure PDF worker for Node.js environment
-PDFParse.setWorker();
 
 export interface ExtractionResult {
   text: string;
