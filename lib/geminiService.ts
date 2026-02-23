@@ -88,7 +88,8 @@ export const analyzeFile = async (
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(errorData.error || 'Analysis failed');
+    const message = errorData.details ? `${errorData.error}: ${errorData.details}` : errorData.error || 'Analysis failed';
+    throw new Error(message);
   }
 
   return response.json();
