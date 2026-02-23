@@ -1,12 +1,13 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Enable standalone output for Docker/Cloud Run
   output: 'standalone',
 
   experimental: {
     optimizePackageImports: ['@google/genai'],
   },
+
+  serverExternalPackages: ['pdf-parse', '@napi-rs/canvas'],
 };
 
 export default nextConfig;
