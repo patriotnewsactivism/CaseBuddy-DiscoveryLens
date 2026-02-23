@@ -6,6 +6,9 @@ import { lookup as mimeLookup } from 'mime-types';
 import { PDFParse } from 'pdf-parse';
 import { extractTextWithAzureOCR, isAzureOCRConfigured } from './azureOCR';
 
+// Configure PDF worker for Node.js environment
+PDFParse.setWorker();
+
 export interface ExtractionResult {
   text: string;
   mimeType: string;
