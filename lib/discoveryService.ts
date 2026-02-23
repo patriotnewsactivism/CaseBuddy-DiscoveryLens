@@ -81,7 +81,8 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
 
     if (!storageResponse.ok) {
       const error = await storageResponse.json().catch(() => ({ error: 'Failed to upload file to storage' }));
-      throw new Error(error.error || 'Failed to upload file to storage');
+      const message = error.details ? `${error.error}: ${error.details}` : error.error || 'Failed to upload file to storage';
+      throw new Error(message);
     }
 
     const { storagePath, signedUrl } = await storageResponse.json();
