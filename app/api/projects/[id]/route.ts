@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
+import { validateProjectPatchInput, validateUuid } from '@/lib/projectValidation';
 import type { Database } from '@/types/database.types';
 
 // GET /api/projects/[id] - Get project with all documents
@@ -9,6 +10,10 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    if (!validateUuid(id)) {
+      return NextResponse.json({ error: 'Invalid project id' }, { status: 400 });
+    }
+
     const supabase = getSupabaseAdmin();
 
     // Fetch project
@@ -39,10 +44,11 @@ export async function GET(
       project,
       documents: documents || [],
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error fetching project:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch project', details: error.message },
+      { error: 'Failed to fetch project', details: message },
       { status: 500 }
     );
   }
@@ -55,12 +61,17 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const body = (await request.json()) as {
-      name?: string;
-      description?: string | null;
-      batesCounter?: number;
-    };
-    const { name, description, batesCounter } = body;
+    if (!validateUuid(id)) {
+      return NextResponse.json({ error: 'Invalid project id' }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const validation = validateProjectPatchInput(body);
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+
+    const { name, description, batesCounter } = validation.value;
 
     const supabase = getSupabaseAdmin();
 
@@ -79,10 +90,11 @@ export async function PATCH(
     if (error) throw error;
 
     return NextResponse.json({ project });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error updating project:', error);
     return NextResponse.json(
-      { error: 'Failed to update project', details: error.message },
+      { error: 'Failed to update project', details: message },
       { status: 500 }
     );
   }
@@ -95,6 +107,10 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    if (!validateUuid(id)) {
+      return NextResponse.json({ error: 'Invalid project id' }, { status: 400 });
+    }
+
     const supabase = getSupabaseAdmin();
 
     // Delete will cascade to documents due to foreign key constraint
@@ -106,10 +122,11 @@ export async function DELETE(
     if (error) throw error;
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error deleting project:', error);
     return NextResponse.json(
-      { error: 'Failed to delete project', details: error.message },
+      { error: 'Failed to delete project', details: message },
       { status: 500 }
     );
   }

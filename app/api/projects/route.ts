@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
+import { validateCreateProjectInput } from '@/lib/projectValidation';
 
 // GET /api/projects - List all projects
 export async function GET(request: NextRequest) {
@@ -14,10 +15,11 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ projects });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error fetching projects:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch projects', details: error.message },
+      { error: 'Failed to fetch projects', details: message },
       { status: 500 }
     );
   }
@@ -27,14 +29,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, description, batesPrefix = 'DEF' } = body;
-
-    if (!name) {
-      return NextResponse.json(
-        { error: 'Project name is required' },
-        { status: 400 }
-      );
+    const validation = validateCreateProjectInput(body);
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
+
+    const { name, description, batesPrefix } = validation.value;
 
     const supabase = getSupabaseAdmin();
 
@@ -52,10 +52,11 @@ export async function POST(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ project }, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error creating project:', error);
     return NextResponse.json(
-      { error: 'Failed to create project', details: error.message },
+      { error: 'Failed to create project', details: message },
       { status: 500 }
     );
   }
