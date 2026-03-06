@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { analyzeFileServer } from '@/lib/openAIService';
+import { getConfiguredAIProvider } from '@/lib/aiProvider';
+import { analyzeFileServer as analyzeWithGemini } from '@/lib/geminiServer';
+import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 
@@ -118,7 +120,11 @@ export async function POST(request: NextRequest) {
       console.log('[analyze] Warning: No text extracted from document');
     }
 
-    console.log('[analyze] Calling analyzeFileServer...');
+    const provider = getConfiguredAIProvider();
+
+    console.log('[analyze] Calling analyzeFileServer...', { provider });
+    const analyzeFileServer = provider === 'openai' ? analyzeWithOpenAI : analyzeWithGemini;
+
     const analysis = await analyzeFileServer({
       mimeType: detectedMime || mimeType,
       fileName: fileName || 'Unknown',
