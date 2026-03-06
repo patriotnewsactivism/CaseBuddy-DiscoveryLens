@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { chatWithDiscoveryServer } from '@/lib/openAIService';
+import { getConfiguredAIProvider } from '@/lib/aiProvider';
+import { chatWithDiscoveryServer as chatWithGemini } from '@/lib/geminiServer';
+import { chatWithDiscoveryServer as chatWithOpenAI } from '@/lib/openAIService';
 
 export const maxDuration = 300; // 5 minutes for complex queries
 
@@ -16,7 +18,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call server-side Gemini chat function
+    const provider = getConfiguredAIProvider();
+    const chatWithDiscoveryServer = provider === 'openai' ? chatWithOpenAI : chatWithGemini;
+
     const response = await chatWithDiscoveryServer(
       query,
       filesContext || [],
