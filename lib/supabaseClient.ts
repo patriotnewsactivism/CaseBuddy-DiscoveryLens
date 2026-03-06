@@ -1,14 +1,14 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from './database.types';
 
-// Client-side Supabase client (uses anon key)
-// Safe to use in browser - respects Row Level Security policies
+import type { Database } from './database.types';
+import { validateSupabaseServerEnv } from './supabaseEnv';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 let supabaseClient: SupabaseClient<Database> | null = null;
 
-export function getSupabaseClient() {
+export function getSupabaseClient(): SupabaseClient<Database> {
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Missing Supabase environment variables. Please configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local');
   }
@@ -20,30 +20,27 @@ export function getSupabaseClient() {
   return supabaseClient;
 }
 
-// Server-side Supabase client (uses service role key)
-// Has admin access - bypasses RLS policies
-// ONLY use this in API routes, never in client components
-let _supabaseAdmin: SupabaseClient<Database> | null = null;
+let supabaseAdmin: SupabaseClient<Database> | null = null;
 
-export function getSupabaseAdmin() {
-  if (!_supabaseAdmin) {
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+export function getSupabaseAdmin(): SupabaseClient<Database> {
+  if (!supabaseAdmin) {
+    const validation = validateSupabaseServerEnv(process.env);
 
-    if (!serviceRoleKey) {
-      throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
+    if (!validation.isValid) {
+      throw new Error(`Missing required Supabase server environment variables: ${validation.missing.join(', ')}`);
     }
 
-    if (!supabaseUrl) {
-      throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable');
-    }
-
-    _supabaseAdmin = createClient<Database>(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
+    supabaseAdmin = createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+      process.env.SUPABASE_SERVICE_ROLE_KEY as string,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
       }
-    });
+    );
   }
 
-  return _supabaseAdmin;
+  return supabaseAdmin;
 }
