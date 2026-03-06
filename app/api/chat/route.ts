@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { chatWithDiscoveryServer } from '@/lib/openAIService';
+import { chatWithDiscoveryServer } from '@/lib/geminiServer';
 
 export const maxDuration = 300; // 5 minutes for complex queries
 
