@@ -4,6 +4,7 @@ interface EnvConfig {
   OPENAI_API_KEY?: string;
   GEMINI_API_KEY?: string;
   AI_PROVIDER?: string;
+  [key: string]: string | undefined;
 }
 
 const normalizeProvider = (value?: string): AIProvider | null => {
