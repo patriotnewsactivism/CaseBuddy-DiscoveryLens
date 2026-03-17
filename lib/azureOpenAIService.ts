@@ -35,9 +35,33 @@ function getAzureClient(deployment: string): OpenAI {
     return clientCache[deployment];
   }
 
+  // Handle different endpoint formats
+  let baseURL = AZURE_OPENAI_ENDPOINT;
+  
+  // If the endpoint doesn't look like a full OpenAI compatible URL, build it in standard Azure style
+  if (!baseURL.includes('/openai') && !baseURL.includes('/api/projects')) {
+    baseURL = `${baseURL}/openai/deployments/${deployment}`;
+  } else if (baseURL.includes('/openai/v1')) {
+    // If it's an OpenAI-compatible endpoint, we might still need the deployment if it's Azure-style
+    // but often these are used as a direct base. 
+    // However, the current code expects deployment-based routing.
+    // If it's a project endpoint, it usually needs the deployment path too.
+    if (baseURL.endsWith('/v1')) {
+      // Direct OpenAI-compatible base
+      // We don't append anything, the deployment will be passed as the 'model' parameter in the request
+    } else if (!baseURL.includes('/deployments/')) {
+      baseURL = `${baseURL}/deployments/${deployment}`;
+    }
+  } else if (baseURL.includes('/api/projects') && !baseURL.includes('/deployments/')) {
+    // Foundry project endpoint
+    baseURL = `${baseURL}/openai/deployments/${deployment}`;
+  }
+
+  console.log(`[azureOpenAIService] Initializing client for deployment ${deployment} with baseURL: ${baseURL}`);
+
   clientCache[deployment] = new OpenAI({
     apiKey: AZURE_OPENAI_KEY,
-    baseURL: `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${deployment}`,
+    baseURL: baseURL,
     defaultHeaders: {
       'api-key': AZURE_OPENAI_KEY,
     },
