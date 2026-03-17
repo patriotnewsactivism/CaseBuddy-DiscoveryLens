@@ -346,16 +346,16 @@ class JobWorker {
     }
 
     const buffer = Buffer.from(await fileData.arrayBuffer());
-    const base64Data = buffer.toString('base64');
 
     this.onProgress?.(job.id, 20, 'Processing audio');
 
-    const { transcribeAudioServer } = await import('./geminiServer');
-    const transcription = await transcribeAudioServer({
-      base64Data,
+    const { transcribeWithAssembly } = await import('./assemblyTranscriber');
+    const transcription = await transcribeWithAssembly({
+      input: buffer,
       mimeType: document.mime_type || 'audio/mpeg',
       fileName: document.name,
       batesNumber: document.bates_formatted || 'UNKNOWN',
+      isBase64: false
     });
 
     this.onProgress?.(job.id, 80, 'Saving transcription');
