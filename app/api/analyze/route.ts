@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
 import { analyzeFileServer as analyzeWithAzure } from '@/lib/azureOpenAIService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
+import { extractTextWithDocumentIntelligence, isDocumentIntelligenceConfigured } from '@/lib/documentIntelligenceService';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 
 async function downloadStorageObject(storagePath: string, signedUrl?: string) {
@@ -89,16 +90,55 @@ export async function POST(request: NextRequest) {
 
     if (!cleanedText && payloadBase64) {
       console.log('[analyze] Extracting text from base64 data...');
-      const extraction = await extractTextFromBase64(payloadBase64, mimeType, fileName);
-      cleanedText = extraction.text;
-      detectedMime = extraction.mimeType;
-      metadata = extraction.metadata;
-      chunks = extraction.chunks;
-      console.log('[analyze] Extraction complete:', {
-        textLength: cleanedText?.length || 0,
-        chunkCount: chunks.length,
-        detectedMime,
-      });
+
+      // Try Document Intelligence first for PDFs and images (best accuracy)
+      if (isDocumentIntelligenceConfigured() && (mimeType?.includes('pdf') || mimeType?.includes('image/'))) {
+        try {
+          console.log('[analyze] Using Document Intelligence for OCR...');
+          const docResult = await extractTextWithDocumentIntelligence(
+            payloadBase64,
+            mimeType || 'application/octet-stream',
+            fileName,
+            batesNumber
+          );
+          cleanedText = docResult.text;
+          detectedMime = mimeType;
+          metadata = {
+            mimeType: mimeType || 'application/pdf',
+            fileName,
+            wordCount: cleanedText ? cleanedText.split(/\s+/).length : 0,
+            sourceOCR: 'document-intelligence',
+            pages: docResult.pages,
+            confidence: docResult.confidence,
+            tableCount: docResult.tables?.length || 0,
+          };
+          chunks = chunkText(cleanedText);
+          console.log('[analyze] Document Intelligence extraction complete:', {
+            textLength: cleanedText?.length || 0,
+            chunkCount: chunks.length,
+            confidence: metadata.confidence,
+          });
+        } catch (docIntelError: any) {
+          console.warn('[analyze] Document Intelligence failed, falling back to generic extraction:', docIntelError?.message);
+          const extraction = await extractTextFromBase64(payloadBase64, mimeType, fileName);
+          cleanedText = extraction.text;
+          detectedMime = extraction.mimeType;
+          metadata = extraction.metadata;
+          chunks = extraction.chunks;
+        }
+      } else {
+        // Fall back to generic text extraction
+        const extraction = await extractTextFromBase64(payloadBase64, mimeType, fileName);
+        cleanedText = extraction.text;
+        detectedMime = extraction.mimeType;
+        metadata = extraction.metadata;
+        chunks = extraction.chunks;
+        console.log('[analyze] Generic extraction complete:', {
+          textLength: cleanedText?.length || 0,
+          chunkCount: chunks.length,
+          detectedMime,
+        });
+      }
     } else if (cleanedText) {
       chunks = chunkText(cleanedText);
       metadata = {
