@@ -30,6 +30,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ response });
   } catch (error: any) {
     console.error('Chat API error:', error);
+
+    const isAuthError =
+      error?.status === 401 ||
+      error?.status === 403 ||
+      error?.message?.includes('401') ||
+      error?.message?.includes('Access denied') ||
+      error?.message?.includes('invalid subscription key') ||
+      error?.message?.includes('Invalid API key') ||
+      error?.message?.includes('authentication') ||
+      error?.code === 'AuthenticationError';
+
+    if (isAuthError) {
+      console.error('[chat] Azure authentication failed — check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, and deployment name.');
+      return NextResponse.json(
+        { error: 'AI service authentication failed. Please verify Azure OpenAI credentials and endpoint configuration.' },
+        { status: 401 }
+      );
+    }
+
     return NextResponse.json(
       {
         error: 'Failed to process chat',
