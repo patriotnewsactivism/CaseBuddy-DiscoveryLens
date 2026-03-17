@@ -39,6 +39,22 @@ const isAzureConfigured = (env: EnvConfig = process.env): boolean => {
 export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvider {
   const preferredProvider = normalizeProvider(env.AI_PROVIDER);
 
+  // If Azure is explicitly requested OR if it's partially configured, we MUST use it or fail.
+  // This prevents accidental fallbacks to OpenAI that cause quota errors.
+  const hasSomeAzureConfig = Boolean(
+    env.AZURE_OPENAI_ENDPOINT || 
+    env.AZURE_OPENAI_KEY || 
+    env.AZURE_OPENAI_API_KEY ||
+    env.AZURE_OPENAI_DEPLOYMENT
+  );
+
+  if (preferredProvider === 'azure' || (preferredProvider === null && hasSomeAzureConfig)) {
+    if (!isAzureConfigured(env)) {
+      throw new Error('Azure OpenAI configuration is incomplete. Ensure ENDPOINT, KEY, and DEPLOYMENT are set.');
+    }
+    return 'azure';
+  }
+
   if (preferredProvider === 'openai') {
     if (!env.OPENAI_API_KEY?.trim()) {
       throw new Error('AI_PROVIDER is set to openai but OPENAI_API_KEY is missing.');
@@ -46,14 +62,7 @@ export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvide
     return 'openai';
   }
 
-  if (preferredProvider === 'azure') {
-    if (!isAzureConfigured(env)) {
-      throw new Error('AI_PROVIDER is set to azure but Azure OpenAI configuration is incomplete.');
-    }
-    return 'azure';
-  }
-
-  // Auto-selection priority: Azure OpenAI > OpenAI
+  // Final auto-selection
   if (isAzureConfigured(env)) {
     return 'azure';
   }
@@ -62,5 +71,5 @@ export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvide
     return 'openai';
   }
 
-  throw new Error('No AI provider API key configured. Set OPENAI_API_KEY or Azure OpenAI credentials.');
+  throw new Error('No AI provider API key configured. Set AZURE_OPENAI credentials or OPENAI_API_KEY.');
 }
