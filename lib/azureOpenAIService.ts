@@ -1,10 +1,10 @@
-import OpenAI from 'openai';
+import { AzureOpenAI } from 'openai';
 import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
 import { analysisCache, LRUCache } from './cache';
 
 const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT?.replace(/\/?$/, '');
 const AZURE_OPENAI_KEY = process.env.AZURE_OPENAI_KEY || process.env.AZURE_OPENAI_API_KEY;
-const AZURE_OPENAI_API_VERSION = process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview';
+const AZURE_OPENAI_API_VERSION = process.env.AZURE_OPENAI_API_VERSION || '2024-04-01-preview';
 const AZURE_DEPLOYMENT_ANALYSIS =
   process.env.AZURE_OPENAI_DEPLOYMENT_ANALYSIS ||
   process.env.AZURE_OPENAI_DEPLOYMENT ||
@@ -21,43 +21,31 @@ if (!AZURE_OPENAI_KEY) {
   console.warn('[azureOpenAIService] AZURE_OPENAI_KEY not set; Azure provider will be unavailable.');
 }
 
-const clientCache: Record<string, OpenAI> = {};
+const clientCache: Record<string, AzureOpenAI> = {};
 
-function getAzureClient(deployment: string): OpenAI {
+function getAzureClient(deployment: string): AzureOpenAI {
   if (!AZURE_OPENAI_ENDPOINT || !AZURE_OPENAI_KEY) {
     throw new Error('Azure OpenAI is not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_KEY.');
   }
   if (!deployment) {
-    throw new Error('Azure OpenAI deployment name is missing. Set AZURE_OPENAI_DEPLOYMENT or deployment-specific variables.');
+    throw new Error('Azure OpenAI deployment name is missing.');
   }
 
   if (clientCache[deployment]) {
     return clientCache[deployment];
   }
 
-  // Handle different endpoint formats
-  let baseURL = AZURE_OPENAI_ENDPOINT.trim();
-  
-  // Clean trailing slashes and version suffixes for standard construction
-  baseURL = baseURL.replace(/\/openai\/v1\/?$/, '').replace(/\/$/, '');
+  console.log(`[azureOpenAIService] Initializing AzureOpenAI client for deployment: ${deployment} with endpoint: ${AZURE_OPENAI_ENDPOINT}`);
 
-  if (baseURL.includes('/api/projects')) {
-    // Foundry project endpoint: {endpoint}/openai/deployments/{deployment}
-    baseURL = `${baseURL}/openai/deployments/${deployment}`;
-  } else {
-    // Standard Azure OpenAI: {endpoint}/openai/deployments/{deployment}
-    baseURL = `${baseURL}/openai/deployments/${deployment}`;
-  }
-
-  console.log(`[azureOpenAIService] Initializing client for deployment "${deployment}" with baseURL: ${baseURL}`);
-
-  clientCache[deployment] = new OpenAI({
+  clientCache[deployment] = new AzureOpenAI({
     apiKey: AZURE_OPENAI_KEY,
-    baseURL: baseURL,
+    endpoint: AZURE_OPENAI_ENDPOINT,
+    deployment: deployment,
+    apiVersion: AZURE_OPENAI_API_VERSION,
+    // When using project endpoints, we might need to be careful with headers
     defaultHeaders: {
       'api-key': AZURE_OPENAI_KEY,
-    },
-    defaultQuery: { 'api-version': AZURE_OPENAI_API_VERSION },
+    }
   });
 
   return clientCache[deployment];
@@ -79,7 +67,7 @@ const retryWithBackoff = async <T>(
       lastError = error;
       
       if (error?.status === 429 || error?.message?.includes('429')) {
-        const match = error?.message?.match(/try again in ([\\d.]+)s/i);
+        const match = error?.message?.match(/try again in ([\d.]+)s/i);
         const waitTime = match 
           ? Math.ceil(parseFloat(match[1]) * 1000) + 500
           : initialDelayMs * Math.pow(2, attempt);
@@ -170,9 +158,9 @@ export async function analyzeFileServer({
 
   const perspectiveText =
     casePerspective === 'defense_support'
-      ? 'You are assisting defense counsel. A \"hostile\" sentiment means it harms the defense; \"cooperative\" means it supports the defense.'
+      ? 'You are assisting defense counsel. A "hostile" sentiment means it harms the defense; "cooperative" means it supports the defense.'
       : casePerspective === 'plaintiff_support'
-        ? 'You are assisting a plaintiff/litigator. A \"hostile\" sentiment means it harms the plaintiff; \"cooperative\" means it supports the plaintiff.'
+        ? 'You are assisting a plaintiff/litigator. A "hostile" sentiment means it harms the plaintiff; "cooperative" means it supports the plaintiff.'
         : 'You are reviewing materials in your own matter. Treat sentiment as friendly/hostile relative to the user.';
 
   const contentParts: string[] = [
@@ -197,7 +185,7 @@ export async function analyzeFileServer({
   }
 
   contentParts.push(
-    'INSTRUCTIONS:\n- Extract key facts, entities, dates, and relevant legal information\n- Classify the \"evidenceType\" accurately from the provided list\n- Provide a concise summary of the content\n- Identify sentiment/tone if applicable'
+    'INSTRUCTIONS:\n- Extract key facts, entities, dates, and relevant legal information\n- Classify the "evidenceType" accurately from the provided list\n- Provide a concise summary of the content\n- Identify sentiment/tone if applicable'
   );
 
   if (fileType === 'AUDIO' || fileType === 'VIDEO') {
@@ -206,14 +194,14 @@ export async function analyzeFileServer({
 
   const evidenceCategoriesList = EVIDENCE_CATEGORIES.join(', ');
 
-  const messages: OpenAI.ChatCompletionMessageParam[] = [
+  const messages: any[] = [
     {
       role: 'system',
       content: `${SYSTEM_INSTRUCTION_ANALYZER}\n\nValid evidence types: ${evidenceCategoriesList}\n\nRespond with a JSON object containing: summary (string), evidenceType (one of the valid types), entities (string array), dates (string array), relevantFacts (string array), sentiment (one of: Hostile, Cooperative, Neutral).`,
     },
     {
       role: 'user',
-      content: contentParts.join('\\n\\n'),
+      content: contentParts.join('\n\n'),
     },
   ];
 
@@ -221,7 +209,7 @@ export async function analyzeFileServer({
     messages[1] = {
       role: 'user',
       content: [
-        { type: 'text', text: contentParts.join('\\n\\n') },
+        { type: 'text', text: contentParts.join('\n\n') },
         { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}`, detail: 'low' } },
       ],
     };
@@ -250,12 +238,12 @@ export async function chatWithDiscoveryServer(
   activeFile?: ActiveFileContext,
   casePerspective?: string
 ) {
-  let contextString = 'Here is the summary of the discovery files available:\\n';
+  let contextString = 'Here is the summary of the discovery files available:\n';
   filesContext.forEach(f => {
-    contextString += `\\n--- File: ${f.batesNumber} (${f.name}) ---\\n`;
-    contextString += `Type: ${f.evidenceType}\\n`;
-    contextString += `Summary: ${f.summary}\\n`;
-    contextString += `Key Facts: ${f.relevantFacts.join('; ')}\\n`;
+    contextString += `\n--- File: ${f.batesNumber} (${f.name}) ---\n`;
+    contextString += `Type: ${f.evidenceType}\n`;
+    contextString += `Summary: ${f.summary}\n`;
+    contextString += `Key Facts: ${f.relevantFacts.join('; ')}\n`;
   });
 
   const filesHash = LRUCache.hashContent(contextString);
@@ -281,17 +269,17 @@ export async function chatWithDiscoveryServer(
   ];
 
   if (activeFile) {
-    textContent.push(`\\nUSER IS CURRENTLY VIEWING FILE: ${activeFile.batesNumber}. Focus on this file.`);
+    textContent.push(`\nUSER IS CURRENTLY VIEWING FILE: ${activeFile.batesNumber}. Focus on this file.`);
 
     if (activeFile.transcription && activeFile.transcription.length > 50) {
-      textContent.push(`TRANSCRIPTION OF VIEWED FILE:\\n${activeFile.transcription}`);
+      textContent.push(`TRANSCRIPTION OF VIEWED FILE:\n${activeFile.transcription}`);
     } else if (activeFile.base64Data && activeFile.mimeType?.startsWith('image/')) {
-      const imageContent: OpenAI.ChatCompletionContentPart[] = [
-        { type: 'text', text: textContent.join('\\n\\n') },
+      const imageContent: any[] = [
+        { type: 'text', text: textContent.join('\n\n') },
         { type: 'image_url', image_url: { url: `data:${activeFile.mimeType};base64,${activeFile.base64Data}`, detail: 'low' } },
       ];
       
-      const messages: OpenAI.ChatCompletionMessageParam[] = [
+      const messages: any[] = [
         { role: 'system', content: SYSTEM_INSTRUCTION_CHAT },
         { role: 'user', content: imageContent },
       ];
@@ -312,11 +300,11 @@ export async function chatWithDiscoveryServer(
     }
   }
 
-  textContent.push(`\\nUSER QUESTION: ${query}`);
+  textContent.push(`\nUSER QUESTION: ${query}`);
 
-  const messages: OpenAI.ChatCompletionMessageParam[] = [
+  const messages: any[] = [
     { role: 'system', content: SYSTEM_INSTRUCTION_CHAT },
-    { role: 'user', content: textContent.join('\\n\\n') },
+    { role: 'user', content: textContent.join('\n\n') },
   ];
 
   const response = await retryWithBackoff(() => getAzureClient(CHAT_MODEL).chat.completions.create({
