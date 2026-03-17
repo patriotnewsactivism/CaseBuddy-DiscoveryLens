@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { transcribeAudioServer } from '@/lib/geminiServer';
+import { transcribeWithAssembly } from '@/lib/assemblyTranscriber';
 import { downloadMediaBuffer, getMaxMediaBytes } from '@/lib/mediaTranscoder';
 
 export const maxDuration = 300; // 5 minutes for transcription
