@@ -210,5 +210,5 @@ export async function extractTablesFromDocument(
 }
 
 export function isAzureOCRConfigured(): boolean {
-  return Boolean(AZURE_DOC_INTELLIGENCE_ENDPOINT);
+  return Boolean(AZURE_DOC_INTELLIGENCE_ENDPOINT && AZURE_DOC_INTELLIGENCE_KEY);
 }

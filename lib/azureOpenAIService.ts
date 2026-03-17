@@ -42,10 +42,6 @@ function getAzureClient(deployment: string): AzureOpenAI {
     endpoint: AZURE_OPENAI_ENDPOINT,
     deployment: deployment,
     apiVersion: AZURE_OPENAI_API_VERSION,
-    // When using project endpoints, we might need to be careful with headers
-    defaultHeaders: {
-      'api-key': AZURE_OPENAI_KEY,
-    }
   });
 
   return clientCache[deployment];
