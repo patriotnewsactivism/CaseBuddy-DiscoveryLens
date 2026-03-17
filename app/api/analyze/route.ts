@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
-import { analyzeFileServer as analyzeWithGemini } from '@/lib/geminiServer';
 import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
 import { analyzeFileServer as analyzeWithAzure } from '@/lib/azureOpenAIService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';

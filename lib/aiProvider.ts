@@ -1,4 +1,4 @@
-export type AIProvider = 'openai' | 'gemini' | 'azure';
+export type AIProvider = 'openai' | 'azure';
 
 interface EnvConfig {
   OPENAI_API_KEY?: string;
@@ -19,7 +19,7 @@ const normalizeProvider = (value?: string): AIProvider | null => {
   }
 
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'openai' || normalized === 'gemini' || normalized === 'azure' || normalized === 'azure-openai') {
+  if (normalized === 'openai' || normalized === 'azure' || normalized === 'azure-openai') {
     return normalized === 'azure-openai' ? 'azure' : (normalized as AIProvider);
   }
 
@@ -53,25 +53,14 @@ export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvide
     return 'azure';
   }
 
-  if (preferredProvider === 'gemini') {
-    if (!env.GEMINI_API_KEY?.trim()) {
-      throw new Error('AI_PROVIDER is set to gemini but GEMINI_API_KEY is missing.');
-    }
-    return 'gemini';
-  }
-
-  // Auto-selection priority: Azure OpenAI > Gemini > OpenAI
+  // Auto-selection priority: Azure OpenAI > OpenAI
   if (isAzureConfigured(env)) {
     return 'azure';
-  }
-
-  if (env.GEMINI_API_KEY?.trim()) {
-    return 'gemini';
   }
 
   if (env.OPENAI_API_KEY?.trim()) {
     return 'openai';
   }
 
-  throw new Error('No AI provider API key configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI credentials.');
+  throw new Error('No AI provider API key configured. Set OPENAI_API_KEY or Azure OpenAI credentials.');
 }
