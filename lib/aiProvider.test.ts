@@ -54,7 +54,7 @@ describe('getConfiguredAIProvider', () => {
 
   it('throws when no keys are configured', () => {
     expect(() => getConfiguredAIProvider({})).toThrow(
-      'No AI provider API key configured. Set OPENAI_API_KEY or GEMINI_API_KEY.'
+      'No AI provider API key configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI credentials.'
     );
   });
 

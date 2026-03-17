@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
 import { analyzeFileServer as analyzeWithGemini } from '@/lib/geminiServer';
 import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
+import { analyzeFileServer as analyzeWithAzure } from '@/lib/azureOpenAIService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 
@@ -123,7 +124,11 @@ export async function POST(request: NextRequest) {
     const provider = getConfiguredAIProvider();
 
     console.log('[analyze] Calling analyzeFileServer...', { provider });
-    const analyzeFileServer = provider === 'openai' ? analyzeWithOpenAI : analyzeWithGemini;
+    const analyzeFileServer = provider === 'openai'
+      ? analyzeWithOpenAI
+      : provider === 'azure'
+        ? analyzeWithAzure
+        : analyzeWithGemini;
 
     const analysis = await analyzeFileServer({
       mimeType: detectedMime || mimeType,

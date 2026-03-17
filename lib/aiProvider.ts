@@ -73,5 +73,5 @@ export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvide
     return 'openai';
   }
 
-  throw new Error('No AI provider API key configured. Set OPENAI_API_KEY or GEMINI_API_KEY.');
+  throw new Error('No AI provider API key configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI credentials.');
 }
