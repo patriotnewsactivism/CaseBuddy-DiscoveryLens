@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
     }
 
     const provider = getConfiguredAIProvider();
+    console.log('[chat] Provider selection:', { provider });
     const chatWithDiscoveryServer = provider === 'openai'
       ? chatWithOpenAI
       : provider === 'azure'

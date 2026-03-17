@@ -26,13 +26,13 @@ const normalizeProvider = (value?: string): AIProvider | null => {
   return null;
 };
 
-const isAzureConfigured = (env: EnvConfig): boolean => {
-  const endpoint = env.AZURE_OPENAI_ENDPOINT;
-  const key = env.AZURE_OPENAI_KEY || env.AZURE_OPENAI_API_KEY;
+const isAzureConfigured = (env: EnvConfig = process.env): boolean => {
+  const endpoint = env.AZURE_OPENAI_ENDPOINT?.trim();
+  const key = (env.AZURE_OPENAI_KEY || env.AZURE_OPENAI_API_KEY)?.trim();
   const deployment =
-    env.AZURE_OPENAI_DEPLOYMENT ||
+    (env.AZURE_OPENAI_DEPLOYMENT ||
     env.AZURE_OPENAI_DEPLOYMENT_ANALYSIS ||
-    env.AZURE_OPENAI_DEPLOYMENT_CHAT;
+    env.AZURE_OPENAI_DEPLOYMENT_CHAT)?.trim();
   return Boolean(endpoint && key && deployment);
 };
 
@@ -40,7 +40,7 @@ export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvide
   const preferredProvider = normalizeProvider(env.AI_PROVIDER);
 
   if (preferredProvider === 'openai') {
-    if (!env.OPENAI_API_KEY) {
+    if (!env.OPENAI_API_KEY?.trim()) {
       throw new Error('AI_PROVIDER is set to openai but OPENAI_API_KEY is missing.');
     }
     return 'openai';
@@ -54,7 +54,7 @@ export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvide
   }
 
   if (preferredProvider === 'gemini') {
-    if (!env.GEMINI_API_KEY) {
+    if (!env.GEMINI_API_KEY?.trim()) {
       throw new Error('AI_PROVIDER is set to gemini but GEMINI_API_KEY is missing.');
     }
     return 'gemini';
@@ -65,11 +65,11 @@ export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvide
     return 'azure';
   }
 
-  if (env.GEMINI_API_KEY) {
+  if (env.GEMINI_API_KEY?.trim()) {
     return 'gemini';
   }
 
-  if (env.OPENAI_API_KEY) {
+  if (env.OPENAI_API_KEY?.trim()) {
     return 'openai';
   }
 

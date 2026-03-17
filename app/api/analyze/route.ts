@@ -123,6 +123,13 @@ export async function POST(request: NextRequest) {
 
     const provider = getConfiguredAIProvider();
 
+    console.log('[analyze] Provider selection:', { 
+      provider, 
+      hasAzureEndpoint: !!process.env.AZURE_OPENAI_ENDPOINT,
+      hasAzureKey: !!process.env.AZURE_OPENAI_KEY,
+      aiProviderEnv: process.env.AI_PROVIDER 
+    });
+
     console.log('[analyze] Calling analyzeFileServer...', { provider });
     const analyzeFileServer = provider === 'openai'
       ? analyzeWithOpenAI
