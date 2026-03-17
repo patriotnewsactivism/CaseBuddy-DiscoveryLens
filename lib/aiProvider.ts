@@ -1,8 +1,6 @@
-export type AIProvider = 'openai' | 'azure';
+export type AIProvider = 'azure';
 
 interface EnvConfig {
-  OPENAI_API_KEY?: string;
-  GEMINI_API_KEY?: string;
   AI_PROVIDER?: string;
   AZURE_OPENAI_ENDPOINT?: string;
   AZURE_OPENAI_KEY?: string;
@@ -19,8 +17,8 @@ const normalizeProvider = (value?: string): AIProvider | null => {
   }
 
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'openai' || normalized === 'azure' || normalized === 'azure-openai') {
-    return normalized === 'azure-openai' ? 'azure' : (normalized as AIProvider);
+  if (normalized === 'azure' || normalized === 'azure-openai') {
+    return 'azure';
   }
 
   return null;
@@ -39,37 +37,12 @@ const isAzureConfigured = (env: EnvConfig = process.env): boolean => {
 export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvider {
   const preferredProvider = normalizeProvider(env.AI_PROVIDER);
 
-  // If Azure is explicitly requested OR if it's partially configured, we MUST use it or fail.
-  // This prevents accidental fallbacks to OpenAI that cause quota errors.
-  const hasSomeAzureConfig = Boolean(
-    env.AZURE_OPENAI_ENDPOINT || 
-    env.AZURE_OPENAI_KEY || 
-    env.AZURE_OPENAI_API_KEY ||
-    env.AZURE_OPENAI_DEPLOYMENT
-  );
-
-  if (preferredProvider === 'azure' || (preferredProvider === null && hasSomeAzureConfig)) {
-    if (!isAzureConfigured(env)) {
-      throw new Error('Azure OpenAI configuration is incomplete. Ensure ENDPOINT, KEY, and DEPLOYMENT are set.');
-    }
-    return 'azure';
+  // For this project, we ONLY support Azure OpenAI.
+  // We ignore preferredProvider if it's not azure and check if azure is configured.
+  
+  if (!isAzureConfigured(env)) {
+    throw new Error('Azure OpenAI configuration is incomplete. Ensure AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, and DEPLOYMENT are set.');
   }
-
-  if (preferredProvider === 'openai') {
-    if (!env.OPENAI_API_KEY?.trim()) {
-      throw new Error('AI_PROVIDER is set to openai but OPENAI_API_KEY is missing.');
-    }
-    return 'openai';
-  }
-
-  // Final auto-selection
-  if (isAzureConfigured(env)) {
-    return 'azure';
-  }
-
-  if (env.OPENAI_API_KEY?.trim()) {
-    return 'openai';
-  }
-
-  throw new Error('No AI provider API key configured. Set AZURE_OPENAI credentials or OPENAI_API_KEY.');
+  
+  return 'azure';
 }

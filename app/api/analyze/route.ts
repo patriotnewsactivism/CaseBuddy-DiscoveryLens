@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
-import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
 import { analyzeFileServer as analyzeWithAzure } from '@/lib/azureOpenAIService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
@@ -129,12 +128,8 @@ export async function POST(request: NextRequest) {
       aiProviderEnv: process.env.AI_PROVIDER 
     });
 
-    console.log('[analyze] Calling analyzeFileServer...', { provider });
-    const analyzeFileServer = provider === 'openai'
-      ? analyzeWithOpenAI
-      : analyzeWithAzure;
-
-    const analysis = await analyzeFileServer({
+    console.log('[analyze] Calling analyzeFileServer (Azure)...');
+    const analysis = await analyzeWithAzure({
       mimeType: detectedMime || mimeType,
       fileName: fileName || 'Unknown',
       batesNumber: batesNumber || 'UNKNOWN',

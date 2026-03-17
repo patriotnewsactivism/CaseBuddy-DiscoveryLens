@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
-import { chatWithDiscoveryServer as chatWithOpenAI } from '@/lib/openAIService';
 import { chatWithDiscoveryServer as chatWithAzure } from '@/lib/azureOpenAIService';
 
 export const maxDuration = 300; // 5 minutes for complex queries
@@ -19,12 +18,9 @@ export async function POST(request: NextRequest) {
     }
 
     const provider = getConfiguredAIProvider();
-    console.log('[chat] Provider selection:', { provider });
-    const chatWithDiscoveryServer = provider === 'openai'
-      ? chatWithOpenAI
-      : chatWithAzure;
+    console.log('[chat] Provider selection (Azure only):', { provider });
 
-    const response = await chatWithDiscoveryServer(
+    const response = await chatWithAzure(
       query,
       filesContext || [],
       activeFile,
