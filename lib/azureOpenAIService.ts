@@ -1,4 +1,4 @@
-import { AzureOpenAI } from 'openai';
+import { AzureOpenAI, OpenAI } from 'openai';
 import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
 import { analysisCache, LRUCache } from './cache';
 
@@ -14,37 +14,56 @@ const AZURE_DEPLOYMENT_CHAT =
   process.env.AZURE_OPENAI_DEPLOYMENT ||
   '';
 
-if (!AZURE_OPENAI_ENDPOINT) {
-  console.warn('[azureOpenAIService] AZURE_OPENAI_ENDPOINT not set; Azure provider will be unavailable.');
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_ANALYSIS_MODEL = process.env.OPENAI_ANALYSIS_MODEL || 'gpt-4o';
+const OPENAI_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-4o';
+
+const isAzureAvailable = Boolean(AZURE_OPENAI_ENDPOINT && AZURE_OPENAI_KEY && AZURE_DEPLOYMENT_ANALYSIS);
+const isOpenAIAvailable = Boolean(OPENAI_API_KEY);
+
+if (!isAzureAvailable && !isOpenAIAvailable) {
+  console.warn('[aiService] No AI provider configured. Set either AZURE_OPENAI_* or OPENAI_API_KEY.');
+} else if (isAzureAvailable) {
+  console.log('[aiService] Using Azure OpenAI provider.');
+} else {
+  console.log('[aiService] Azure OpenAI not configured; using standard OpenAI provider.');
 }
-if (!AZURE_OPENAI_KEY) {
-  console.warn('[azureOpenAIService] AZURE_OPENAI_KEY not set; Azure provider will be unavailable.');
+
+let _openAIClient: OpenAI | null = null;
+const azureClientCache: Record<string, AzureOpenAI> = {};
+
+function getAIClient(deployment: string): OpenAI {
+  if (isAzureAvailable) {
+    if (!deployment) {
+      throw new Error('Azure OpenAI deployment name is missing.');
+    }
+    if (azureClientCache[deployment]) {
+      return azureClientCache[deployment];
+    }
+    console.log(`[aiService] Initializing AzureOpenAI client for deployment: ${deployment} at ${AZURE_OPENAI_ENDPOINT}`);
+    azureClientCache[deployment] = new AzureOpenAI({
+      apiKey: AZURE_OPENAI_KEY!,
+      endpoint: AZURE_OPENAI_ENDPOINT!,
+      deployment,
+      apiVersion: AZURE_OPENAI_API_VERSION,
+    });
+    return azureClientCache[deployment];
+  }
+
+  if (isOpenAIAvailable) {
+    if (!_openAIClient) {
+      console.log('[aiService] Initializing standard OpenAI client.');
+      _openAIClient = new OpenAI({ apiKey: OPENAI_API_KEY! });
+    }
+    return _openAIClient;
+  }
+
+  throw new Error('No AI provider is configured. Set AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_KEY, or OPENAI_API_KEY.');
 }
 
-const clientCache: Record<string, AzureOpenAI> = {};
-
-function getAzureClient(deployment: string): AzureOpenAI {
-  if (!AZURE_OPENAI_ENDPOINT || !AZURE_OPENAI_KEY) {
-    throw new Error('Azure OpenAI is not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_KEY.');
-  }
-  if (!deployment) {
-    throw new Error('Azure OpenAI deployment name is missing.');
-  }
-
-  if (clientCache[deployment]) {
-    return clientCache[deployment];
-  }
-
-  console.log(`[azureOpenAIService] Initializing AzureOpenAI client for deployment: ${deployment} with endpoint: ${AZURE_OPENAI_ENDPOINT}`);
-
-  clientCache[deployment] = new AzureOpenAI({
-    apiKey: AZURE_OPENAI_KEY,
-    endpoint: AZURE_OPENAI_ENDPOINT,
-    deployment: deployment,
-    apiVersion: AZURE_OPENAI_API_VERSION,
-  });
-
-  return clientCache[deployment];
+// Returns the effective model name for a given purpose.
+function resolveModel(azureDeployment: string, openaiDefault: string): string {
+  return isAzureAvailable ? azureDeployment : openaiDefault;
 }
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -80,8 +99,8 @@ const retryWithBackoff = async <T>(
   throw lastError;
 };
 
-const ANALYSIS_MODEL = AZURE_DEPLOYMENT_ANALYSIS;
-const CHAT_MODEL = AZURE_DEPLOYMENT_CHAT || AZURE_DEPLOYMENT_ANALYSIS;
+const ANALYSIS_MODEL = resolveModel(AZURE_DEPLOYMENT_ANALYSIS, OPENAI_ANALYSIS_MODEL);
+const CHAT_MODEL = resolveModel(AZURE_DEPLOYMENT_CHAT || AZURE_DEPLOYMENT_ANALYSIS, OPENAI_CHAT_MODEL);
 
 const ENABLE_CACHING = process.env.AI_ENABLE_CACHE !== 'false';
 const CACHE_TTL_MS = parseInt(process.env.AI_CACHE_TTL_MS || '3600000', 10);
@@ -211,7 +230,7 @@ export async function analyzeFileServer({
     };
   }
 
-  const response = await retryWithBackoff(() => getAzureClient(ANALYSIS_MODEL).chat.completions.create({
+  const response = await retryWithBackoff(() => getAIClient(ANALYSIS_MODEL).chat.completions.create({
     model: ANALYSIS_MODEL,
     messages,
     max_tokens: 4096,
@@ -280,7 +299,7 @@ export async function chatWithDiscoveryServer(
         { role: 'user', content: imageContent },
       ];
 
-      const response = await retryWithBackoff(() => getAzureClient(CHAT_MODEL).chat.completions.create({
+      const response = await retryWithBackoff(() => getAIClient(CHAT_MODEL).chat.completions.create({
         model: CHAT_MODEL,
         messages,
         max_tokens: 4096,
@@ -303,7 +322,7 @@ export async function chatWithDiscoveryServer(
     { role: 'user', content: textContent.join('\n\n') },
   ];
 
-  const response = await retryWithBackoff(() => getAzureClient(CHAT_MODEL).chat.completions.create({
+  const response = await retryWithBackoff(() => getAIClient(CHAT_MODEL).chat.completions.create({
     model: CHAT_MODEL,
     messages,
     max_tokens: 4096,
@@ -319,5 +338,9 @@ export async function chatWithDiscoveryServer(
 }
 
 export function isAzureOpenAIConfigured(): boolean {
-  return Boolean(AZURE_OPENAI_ENDPOINT && AZURE_OPENAI_KEY && AZURE_DEPLOYMENT_ANALYSIS);
+  return isAzureAvailable;
+}
+
+export function isAIProviderConfigured(): boolean {
+  return isAzureAvailable || isOpenAIAvailable;
 }
