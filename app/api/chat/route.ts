@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
-import { chatWithDiscoveryServer as chatWithGemini } from '@/lib/geminiServer';
 import { chatWithDiscoveryServer as chatWithOpenAI } from '@/lib/openAIService';
 import { chatWithDiscoveryServer as chatWithAzure } from '@/lib/azureOpenAIService';
 
@@ -23,9 +22,7 @@ export async function POST(request: NextRequest) {
     console.log('[chat] Provider selection:', { provider });
     const chatWithDiscoveryServer = provider === 'openai'
       ? chatWithOpenAI
-      : provider === 'azure'
-        ? chatWithAzure
-        : chatWithGemini;
+      : chatWithAzure;
 
     const response = await chatWithDiscoveryServer(
       query,
