@@ -59,13 +59,18 @@ function getAzureClient(deployment: string): OpenAI {
 
   console.log(`[azureOpenAIService] Initializing client for deployment ${deployment} with baseURL: ${baseURL}`);
 
+  const query: Record<string, string> = {};
+  if (!baseURL.includes('/openai/v1')) {
+    query['api-version'] = AZURE_OPENAI_API_VERSION;
+  }
+
   clientCache[deployment] = new OpenAI({
     apiKey: AZURE_OPENAI_KEY,
     baseURL: baseURL,
     defaultHeaders: {
       'api-key': AZURE_OPENAI_KEY,
     },
-    defaultQuery: { 'api-version': AZURE_OPENAI_API_VERSION },
+    defaultQuery: Object.keys(query).length > 0 ? query : undefined,
   });
 
   return clientCache[deployment];
