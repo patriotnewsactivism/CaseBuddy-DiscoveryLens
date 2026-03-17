@@ -54,7 +54,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
              </div>
             <p className="text-slate-600 font-medium">Document Preview Unavailable</p>
             <p className="text-slate-400 text-sm mt-2 max-w-xs">
-                Switch to the <strong>Analysis</strong> or <strong>Transcription</strong> tab to view the content extracted by Gemini.
+                Switch to the <strong>Analysis</strong> or <strong>Transcription</strong> tab to view the content extracted by the AI.
             </p>
           </div>
         );
