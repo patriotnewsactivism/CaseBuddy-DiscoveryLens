@@ -37,6 +37,10 @@ create table if not exists public.documents (
   -- Analysis results (JSONB for flexible schema)
   analysis jsonb,
 
+  -- Custom metadata fields
+  tags text[] default '{}',
+  custom_fields jsonb default '{}'::jsonb,
+
   -- Status tracking
   status text not null default 'processing' check (status in ('processing', 'complete', 'failed')),
   error_message text,

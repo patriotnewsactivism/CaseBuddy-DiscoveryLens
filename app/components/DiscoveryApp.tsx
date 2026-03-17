@@ -124,7 +124,9 @@ export default function App() {
         previewUrl: URL.createObjectURL(file),
         isProcessing: true,
         analysis: null,
-        analysisError: null
+        analysisError: null,
+        tags: [],
+        customFields: {}
       };
 
       newFiles.push(newDiscoveryFile);

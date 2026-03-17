@@ -40,6 +40,9 @@ export interface DiscoveryFile {
   base64Data?: string; // Cache for API calls
   mimeType: string;
   analysisError?: string | null;
+  // Custom metadata fields
+  tags?: string[];
+  customFields?: Record<string, any>;
   // Cloud storage fields
   cloudDocumentId?: string; // Document ID in Supabase
   storagePath?: string; // Path in Supabase Storage
@@ -110,6 +113,9 @@ export interface CloudDocument {
   analysis?: AnalysisData;
   status: 'processing' | 'complete' | 'failed';
   error_message?: string;
+  // Custom metadata fields
+  tags?: string[];
+  custom_fields?: Record<string, any>;
   created_at: string;
   updated_at: string;
 }

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { DiscoveryFile, FileType } from '@/lib/types';
 import BatesBadge from './BatesBadge';
+import TagInput from './TagInput';
 
 interface FilePreviewProps {
   file: DiscoveryFile;
@@ -127,26 +128,41 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      {/* Header */}
-      <div className="h-16 border-b border-slate-200 px-6 flex items-center justify-between bg-white shrink-0 shadow-sm z-10">
-        <div className="flex items-center space-x-4 overflow-hidden">
-            <BatesBadge formatted={file.batesNumber.formatted} size="lg" />
-            <div className="flex flex-col min-w-0">
-               <span className="font-bold text-slate-800 truncate text-lg" title={file.name}>{file.name}</span>
-               <div className="flex items-center space-x-2 text-xs text-slate-500">
-                  <span className="uppercase">{file.type}</span>
-                  <span>•</span>
-                  <span>{(file.file.size / 1024 / 1024).toFixed(2)} MB</span>
-                  {file.analysis?.evidenceType && (
-                     <>
-                       <span>•</span>
-                       <span className="text-indigo-600 font-semibold">{file.analysis.evidenceType}</span>
-                     </>
-                  )}
-               </div>
-            </div>
-        </div>
-      </div>
+       {/* Header */}
+       <div className="h-16 border-b border-slate-200 px-6 flex items-center justify-between bg-white shrink-0 shadow-sm z-10">
+         <div className="flex items-center space-x-4 overflow-hidden">
+             <BatesBadge formatted={file.batesNumber.formatted} size="lg" />
+             <div className="flex flex-col min-w-0">
+                <span className="font-bold text-slate-800 truncate text-lg" title={file.name}>{file.name}</span>
+                <div className="flex items-center space-x-2 text-xs text-slate-500">
+                   <span className="uppercase">{file.type}</span>
+                   <span>•</span>
+                   <span>{(file.file.size / 1024 / 1024).toFixed(2)} MB</span>
+                   {file.analysis?.evidenceType && (
+                      <>
+                        <span>•</span>
+                        <span className="text-indigo-600 font-semibold">{file.analysis.evidenceType}</span>
+                      </>
+                   )}
+                </div>
+             </div>
+         </div>
+       </div>
+       
+       {/* Tags Section */}
+       <div className="px-6 py-3 bg-white border-b border-slate-200 shrink-0">
+         <div className="flex flex-wrap gap-2">
+           <span className="text-xs font-medium text-slate-600">Tags:</span>
+           <TagInput 
+             tags={file.tags || []} 
+             onTagsChange={(tags) => {
+               // Update file in state with new tags
+               // This would need to be handled via a callback prop or state management
+               console.log('Tags updated:', tags);
+             }}
+           />
+         </div>
+       </div>
 
       {/* Tabs */}
       <div className="flex border-b border-slate-200 bg-white px-6 space-x-6 shrink-0">

@@ -45,12 +45,17 @@ The API keys are server-side only—never use `NEXT_PUBLIC_` prefix for secrets.
 
 ### Key Files
 - `app/components/DiscoveryApp.tsx` - Main orchestrator with all state
-- `lib/types.ts` - TypeScript type definitions and enums
+- `app/components/FilePreview.tsx` - File preview with tagging support
+- `app/components/TagInput.tsx` - Tag input component for metadata tagging
+- `lib/types.ts` - TypeScript type definitions and enums (includes tags field)
 - `lib/constants.ts` - System prompts and evidence categories
 - `lib/geminiServer.ts` - Server-side Gemini SDK (uses API key)
 - `lib/geminiService.ts` - Client-side service (calls API routes)
 - `lib/discoveryService.ts` - Project and document management
 - `lib/supabaseClient.ts` - Supabase client initialization
+- `supabase/schema.sql` - Database schema (includes tags and custom_fields columns)
+- `supabase/migrations/20240317000003_add_tags_and_custom_fields.sql` - Migration for tagging support
+- `supabase/migrations/20240317000004_add_auth_tables.sql` - Migration for collaboration features
 
 ### Hybrid Client-Server Architecture
 Files stay in browser. Gemini API calls are proxied through Next.js API routes to keep the API key secure. Supabase is used for persistent storage of projects and files.
@@ -163,6 +168,8 @@ describe('myFunction', () => {
 | Add transcription service | Create in `lib/` and register in `aiProvider.ts` |
 | Add OCR service | Create in `lib/` and integrate in analysis pipeline |
 | Add file type support | Update `getFileType()` in `DiscoveryApp.tsx` |
+| Add tagging support | Add tags field to DiscoveryFile type and database schema |
+| Add collaboration features | Implement comments, tasks, and activity logging tables |
 
 ## Important Reminders
 
