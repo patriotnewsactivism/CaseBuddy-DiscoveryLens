@@ -16,8 +16,9 @@ async function applySupabaseCors() {
   ];
 
   try {
+    // Correct management API endpoint for updating bucket
     const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/storage/buckets/${bucketId}`, {
-      method: 'PATCH',
+      method: 'PUT',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
@@ -31,7 +32,7 @@ async function applySupabaseCors() {
     });
 
     if (!response.ok) {
-      const error = await response.json();
+      const error = await response.json().catch(() => ({ message: response.statusText }));
       console.error('Failed to set CORS:', JSON.stringify(error, null, 2));
       return;
     }
