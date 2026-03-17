@@ -132,9 +132,7 @@ export async function POST(request: NextRequest) {
     console.log('[analyze] Calling analyzeFileServer...', { provider });
     const analyzeFileServer = provider === 'openai'
       ? analyzeWithOpenAI
-      : provider === 'azure'
-        ? analyzeWithAzure
-        : analyzeWithGemini;
+      : analyzeWithAzure;
 
     const analysis = await analyzeFileServer({
       mimeType: detectedMime || mimeType,
