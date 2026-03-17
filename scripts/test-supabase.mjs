@@ -1,11 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
-import * as dotenv from 'dotenv';
-import path from 'path';
+import fs from 'fs';
 
-dotenv.config({ path: '.env.local' });
+// Manually parse .env.local since we can't use dotenv
+const envFile = fs.readFileSync('.env.local', 'utf8');
+const env = {};
+envFile.split('\n').forEach(line => {
+  const match = line.match(/^\s*([^#=]+)\s*=\s*([^#]+)\s*$/);
+  if (match) {
+    env[match[1].trim()] = match[2].trim();
+  }
+});
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl = env['NEXT_PUBLIC_SUPABASE_URL'];
+const supabaseServiceKey = env['SUPABASE_SERVICE_ROLE_KEY'];
 
 if (!supabaseUrl || !supabaseServiceKey) {
   console.error('Missing Supabase credentials in .env.local');
@@ -25,9 +32,6 @@ async function checkSupabase() {
     
   if (tableError) {
     console.error('❌ Projects table check failed:', tableError.message);
-    if (tableError.message.includes('relation "public.projects" does not exist')) {
-      console.log('👉 ACTION: You need to run the schema.sql in the Supabase SQL Editor.');
-    }
   } else {
     console.log('✅ Projects table is accessible.');
   }
@@ -45,7 +49,6 @@ async function checkSupabase() {
       console.log('✅ "discovery-files" bucket exists.');
     } else {
       console.log('❌ "discovery-files" bucket NOT found.');
-      console.log('👉 ACTION: Create a private bucket named "discovery-files" in Supabase Storage.');
     }
   }
 }
