@@ -29,7 +29,10 @@ export const createStorageClient = async (): Promise<StorageClient> => {
 
 /**
  * Get presigned upload URL for a file
- * Supabase generates signed URLs that expire in 15 minutes by default
+ * Note: Supabase doesn't support presigned PUT URLs like S3.
+ * Instead, we return a token that the client can use with the Supabase SDK.
+ * For backward compatibility, we return a special marker URL.
+ * The client should send files to the server instead.
  */
 export const getPresignedUploadUrl = async (
   _client: StorageClient,
@@ -37,24 +40,9 @@ export const getPresignedUploadUrl = async (
   key: string,
   _mimeType: string
 ): Promise<string> => {
-  const supabase = getSupabaseAdmin();
-
-  // Create signed upload URL (15 minutes expiry)
-  const { data, error } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .createSignedUrl(key, 15 * 60, {
-      upsert: true,
-    });
-
-  if (error) {
-    throw new Error(`Failed to create signed upload URL: ${error.message}`);
-  }
-
-  if (!data?.signedUrl) {
-    throw new Error('No signed URL returned from Supabase');
-  }
-
-  return data.signedUrl;
+  // Supabase doesn't support presigned PUT URLs like S3
+  // Return a marker URL; client should upload via /api/projects/upload instead
+  return `supabase://${STORAGE_BUCKET}/${key}`;
 };
 
 /**

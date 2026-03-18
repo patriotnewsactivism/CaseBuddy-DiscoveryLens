@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildObjectKey, normalizeProjectName } from '@/lib/storageUtils';
-import { createStorageClient, getPresignedUploadUrl, getStorageConfig } from '@/lib/storageServer';
 
+/**
+ * Presign endpoint for preparing file uploads
+ * Since Supabase Storage doesn't support presigned PUT URLs like S3,
+ * this endpoint returns server-side upload endpoints instead.
+ * Client should POST file data to /api/projects/upload with the objectKey.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -15,19 +20,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'files array is required.' }, { status: 400 });
     }
 
-    const config = getStorageConfig();
-    const client = await createStorageClient();
-    const uploads = await Promise.all(
-      files.map(async (file: { id: string; name: string; mimeType: string }) => {
-        if (!file?.id || !file?.name || !file?.mimeType) {
-          throw new Error('Each file requires id, name, and mimeType.');
-        }
+    const uploads = files.map((file: { id: string; name: string; mimeType: string }) => {
+      if (!file?.id || !file?.name || !file?.mimeType) {
+        throw new Error('Each file requires id, name, and mimeType.');
+      }
 
-        const objectKey = buildObjectKey(projectName, file.name, file.id);
-        const uploadUrl = await getPresignedUploadUrl(client, config.bucket, objectKey, file.mimeType);
-        return { id: file.id, uploadUrl, objectKey };
-      })
-    );
+      const objectKey = buildObjectKey(projectName, file.name, file.id);
+
+      // Return server-side upload endpoint instead of presigned URL
+      // Client will POST file data here
+      return {
+        id: file.id,
+        uploadUrl: `/api/projects/upload?key=${encodeURIComponent(objectKey)}`,
+        objectKey,
+      };
+    });
 
     return NextResponse.json({
       uploads,
