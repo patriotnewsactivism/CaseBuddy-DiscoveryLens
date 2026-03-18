@@ -109,10 +109,23 @@ export default function App() {
     for (const file of fileArray) {
       const id = crypto.randomUUID();
       const batesFormatted = formatBates(currentCounter);
-      
+
+      // Eagerly copy file bytes into an in-memory File so that OS-level
+      // permission revocation (NotReadableError) cannot affect later reads
+      // when the file is processed asynchronously from the queue.
+      let inMemoryFile: File;
+      try {
+        const buffer = await file.arrayBuffer();
+        inMemoryFile = new File([buffer], file.name, { type: file.type, lastModified: file.lastModified });
+      } catch {
+        // If reading fails at this point there is nothing more we can do;
+        // fall back to the original reference so the error surfaces normally.
+        inMemoryFile = file;
+      }
+
       const newDiscoveryFile: DiscoveryFile = {
         id,
-        file,
+        file: inMemoryFile,
         name: file.name,
         type: getFileType(file),
         mimeType: file.type,
@@ -121,7 +134,7 @@ export default function App() {
           number: currentCounter,
           formatted: batesFormatted
         },
-        previewUrl: URL.createObjectURL(file),
+        previewUrl: URL.createObjectURL(inMemoryFile),
         isProcessing: true,
         analysis: null,
         analysisError: null,
