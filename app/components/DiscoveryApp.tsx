@@ -362,10 +362,13 @@ export default function App() {
           throw new Error(`Missing upload URL for ${file.name}`);
         }
 
+        // Upload as multipart/form-data via POST (Supabase doesn't support presigned PUTs)
+        const formData = new FormData();
+        formData.append('file', file.file);
+
         const uploadResult = await fetch(upload.uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.mimeType },
-          body: file.file,
+          method: 'POST',
+          body: formData,
         });
 
         if (!uploadResult.ok) {
