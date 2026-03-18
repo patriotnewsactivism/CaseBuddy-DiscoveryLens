@@ -217,11 +217,25 @@ export async function POST(request: NextRequest) {
     }
 
     if (analysis === null) {
-      console.error('[analyze] All providers failed authentication.');
-      return NextResponse.json(
-        { error: 'AI service authentication failed. Please verify your AI provider credentials and configuration.' },
-        { status: 401 }
-      );
+      console.error('[analyze] All providers failed authentication — returning placeholder analysis.');
+      // Return a placeholder so the app continues working without valid AI credentials.
+      // The UI can detect analysisUnavailable=true to show a warning badge.
+      const ext = (fileName || '').split('.').pop()?.toLowerCase() || '';
+      const evidenceType =
+        (mimeType || '').startsWith('image/') ? 'Photograph'
+        : (mimeType || '').startsWith('video/') ? 'CCTV/Surveillance'
+        : (mimeType || '').startsWith('audio/') ? 'Audio Recording'
+        : 'Other';
+      analysis = {
+        summary: `AI analysis unavailable — no configured AI provider could authenticate. Please check your AI provider credentials (OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI settings). File: ${fileName || 'Unknown'}`,
+        evidenceType,
+        entities: [],
+        dates: [],
+        relevantFacts: [`File: ${fileName || 'Unknown'}`, `Type: ${mimeType || fileType || 'Unknown'}`],
+        sentiment: 'Neutral',
+        transcription: '',
+        analysisUnavailable: true,
+      };
     }
 
     console.log('[analyze] Analysis complete:', {

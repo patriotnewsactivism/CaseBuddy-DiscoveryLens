@@ -53,11 +53,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (response === null) {
-      console.error('[chat] All providers failed authentication.');
-      return NextResponse.json(
-        { error: 'AI service authentication failed. Please verify your AI provider credentials and configuration.' },
-        { status: 401 }
-      );
+      console.error('[chat] All providers failed authentication — returning service unavailable message.');
+      return NextResponse.json({
+        response: 'AI service is currently unavailable. No configured AI provider could authenticate. Please check your AI provider credentials (OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI settings) and redeploy the application.',
+      });
     }
 
     return NextResponse.json({ response });
