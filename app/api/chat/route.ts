@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
 import { chatWithDiscoveryServer as chatWithAzure } from '@/lib/azureOpenAIService';
+import { chatWithDiscoveryServer as chatWithOpenAI } from '@/lib/openAIService';
+import { chatWithDiscoveryServer as chatWithGemini } from '@/lib/geminiServerService';
 
 export const maxDuration = 300; // 5 minutes for complex queries
 
@@ -18,9 +20,15 @@ export async function POST(request: NextRequest) {
     }
 
     const provider = getConfiguredAIProvider();
-    console.log('[chat] Provider selection (Azure only):', { provider });
+    console.log('[chat] Provider selection:', { provider });
 
-    const response = await chatWithAzure(
+    const chatWithProvider = provider === 'azure'
+      ? chatWithAzure
+      : provider === 'gemini'
+        ? chatWithGemini
+        : chatWithOpenAI;
+
+    const response = await chatWithProvider(
       query,
       filesContext || [],
       activeFile,
@@ -42,9 +50,9 @@ export async function POST(request: NextRequest) {
       error?.code === 'AuthenticationError';
 
     if (isAuthError) {
-      console.error('[chat] Azure authentication failed — check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, and deployment name.');
+      console.error('[chat] AI provider authentication failed — check your API key and endpoint configuration.');
       return NextResponse.json(
-        { error: 'AI service authentication failed. Please verify Azure OpenAI credentials and endpoint configuration.' },
+        { error: 'AI service authentication failed. Please verify your AI provider credentials and configuration.' },
         { status: 401 }
       );
     }
