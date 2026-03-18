@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
 import { analyzeFileServer as analyzeWithAzure } from '@/lib/azureOpenAIService';
+import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
+import { analyzeFileServer as analyzeWithGemini } from '@/lib/geminiServerService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
 import { extractTextWithDocumentIntelligence, isDocumentIntelligenceConfigured } from '@/lib/documentIntelligenceService';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
@@ -161,15 +163,23 @@ export async function POST(request: NextRequest) {
 
     const provider = getConfiguredAIProvider();
 
-    console.log('[analyze] Provider selection:', { 
-      provider, 
+    console.log('[analyze] Provider selection:', {
+      provider,
       hasAzureEndpoint: !!process.env.AZURE_OPENAI_ENDPOINT,
       hasAzureKey: !!process.env.AZURE_OPENAI_KEY,
-      aiProviderEnv: process.env.AI_PROVIDER 
+      hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+      hasGeminiKey: !!process.env.GEMINI_API_KEY,
+      aiProviderEnv: process.env.AI_PROVIDER,
     });
 
-    console.log('[analyze] Calling analyzeFileServer (Azure)...');
-    const analysis = await analyzeWithAzure({
+    const analyzeWithProvider = provider === 'azure'
+      ? analyzeWithAzure
+      : provider === 'gemini'
+        ? analyzeWithGemini
+        : analyzeWithOpenAI;
+
+    console.log(`[analyze] Calling analyzeFileServer (${provider})...`);
+    const analysis = await analyzeWithProvider({
       mimeType: detectedMime || mimeType,
       fileName: fileName || 'Unknown',
       batesNumber: batesNumber || 'UNKNOWN',
@@ -202,9 +212,9 @@ export async function POST(request: NextRequest) {
       error?.code === 'AuthenticationError';
 
     if (isAuthError) {
-      console.error('[analyze] Azure authentication failed — check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, and deployment name.');
+      console.error('[analyze] AI provider authentication failed — check your API key and endpoint configuration.');
       return NextResponse.json(
-        { error: 'AI service authentication failed. Please verify Azure OpenAI credentials and endpoint configuration.' },
+        { error: 'AI service authentication failed. Please verify your AI provider credentials and configuration.' },
         { status: 401 }
       );
     }
