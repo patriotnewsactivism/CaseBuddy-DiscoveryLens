@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     };
 
     const config = getStorageConfig();
-    const client = createStorageClient(config);
+    const client = await createStorageClient();
     await saveManifestObject(client, config.bucket, manifestKey, manifest);
 
     return NextResponse.json({ success: true, manifestKey });

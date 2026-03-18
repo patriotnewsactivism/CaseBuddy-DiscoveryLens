@@ -1,66 +1,82 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { getSupabaseAdmin } from './supabaseClient';
 
-interface StorageConfig {
-  bucket: string;
-  region: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  endpoint?: string;
-  forcePathStyle?: boolean;
-}
+const STORAGE_BUCKET = 'discovery-files';
 
-export const getStorageConfig = (): StorageConfig => {
-  const bucket = process.env.CLOUD_STORAGE_BUCKET;
-  const region = process.env.CLOUD_STORAGE_REGION;
-  const accessKeyId = process.env.CLOUD_STORAGE_ACCESS_KEY;
-  const secretAccessKey = process.env.CLOUD_STORAGE_SECRET_KEY;
-  const endpoint = process.env.CLOUD_STORAGE_ENDPOINT;
-  const forcePathStyleRaw = process.env.CLOUD_STORAGE_FORCE_PATH_STYLE;
+/**
+ * Storage client type for Supabase
+ * Supabase Storage uses the same interface regardless of backend
+ */
+export type StorageClient = ReturnType<typeof getSupabaseAdmin>['storage'];
 
-  const forcePathStyle = forcePathStyleRaw?.toLowerCase() === 'true';
+/**
+ * Get storage config (now a no-op since Supabase is pre-configured)
+ * Kept for API compatibility
+ */
+export const getStorageConfig = () => {
+  return {
+    bucket: STORAGE_BUCKET,
+  };
+};
 
-  if (!bucket || !region || !accessKeyId || !secretAccessKey) {
-    throw new Error('Missing cloud storage environment variables.');
+/**
+ * Create storage client (wraps Supabase client)
+ * Kept for API compatibility
+ */
+export const createStorageClient = async (): Promise<StorageClient> => {
+  const supabase = getSupabaseAdmin();
+  return supabase.storage;
+};
+
+/**
+ * Get presigned upload URL for a file
+ * Supabase generates signed URLs that expire in 15 minutes by default
+ */
+export const getPresignedUploadUrl = async (
+  _client: StorageClient,
+  _bucket: string,
+  key: string,
+  _mimeType: string
+): Promise<string> => {
+  const supabase = getSupabaseAdmin();
+
+  // Create signed upload URL (15 minutes expiry)
+  const { data, error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .createSignedUrl(key, 15 * 60, {
+      upsert: true,
+    });
+
+  if (error) {
+    throw new Error(`Failed to create signed upload URL: ${error.message}`);
   }
 
-  return { bucket, region, accessKeyId, secretAccessKey, endpoint, forcePathStyle };
+  if (!data?.signedUrl) {
+    throw new Error('No signed URL returned from Supabase');
+  }
+
+  return data.signedUrl;
 };
 
-export const createStorageClient = (config: StorageConfig) => {
-  return new S3Client({
-    region: config.region,
-    endpoint: config.endpoint,
-    forcePathStyle: config.forcePathStyle,
-    credentials: {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey,
-    },
-  });
-};
-
-export const getPresignedUploadUrl = async (
-  client: S3Client,
-  bucket: string,
-  key: string,
-  mimeType: string
-) => {
-  const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: mimeType });
-  return getSignedUrl(client, command, { expiresIn: 15 * 60 });
-};
-
+/**
+ * Save manifest object (JSON) to storage
+ */
 export const saveManifestObject = async (
-  client: S3Client,
-  bucket: string,
+  _client: StorageClient,
+  _bucket: string,
   key: string,
   manifest: unknown
-) => {
-  const command = new PutObjectCommand({
-    Bucket: bucket,
-    Key: key,
-    Body: JSON.stringify(manifest, null, 2),
-    ContentType: 'application/json',
-  });
+): Promise<void> => {
+  const supabase = getSupabaseAdmin();
+  const manifestJson = JSON.stringify(manifest, null, 2);
 
-  await client.send(command);
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(key, manifestJson, {
+      contentType: 'application/json',
+      upsert: true,
+    });
+
+  if (error) {
+    throw new Error(`Failed to save manifest: ${error.message}`);
+  }
 };

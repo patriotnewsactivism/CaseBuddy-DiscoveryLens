@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     const config = getStorageConfig();
-    const client = createStorageClient(config);
+    const client = await createStorageClient();
     const uploads = await Promise.all(
       files.map(async (file: { id: string; name: string; mimeType: string }) => {
         if (!file?.id || !file?.name || !file?.mimeType) {
