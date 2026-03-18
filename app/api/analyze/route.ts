@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getConfiguredAIProvider } from '@/lib/aiProvider';
+import { getConfiguredAIProviders } from '@/lib/aiProvider';
 import { analyzeFileServer as analyzeWithAzure } from '@/lib/azureOpenAIService';
 import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
 import { analyzeFileServer as analyzeWithGemini } from '@/lib/geminiServerService';
@@ -161,10 +161,10 @@ export async function POST(request: NextRequest) {
       console.log('[analyze] Warning: No text extracted from document');
     }
 
-    const provider = getConfiguredAIProvider();
+    const providers = getConfiguredAIProviders();
 
-    console.log('[analyze] Provider selection:', {
-      provider,
+    console.log('[analyze] Provider fallback chain:', {
+      providers,
       hasAzureEndpoint: !!process.env.AZURE_OPENAI_ENDPOINT,
       hasAzureKey: !!process.env.AZURE_OPENAI_KEY,
       hasOpenAIKey: !!process.env.OPENAI_API_KEY,
@@ -172,14 +172,7 @@ export async function POST(request: NextRequest) {
       aiProviderEnv: process.env.AI_PROVIDER,
     });
 
-    const analyzeWithProvider = provider === 'azure'
-      ? analyzeWithAzure
-      : provider === 'gemini'
-        ? analyzeWithGemini
-        : analyzeWithOpenAI;
-
-    console.log(`[analyze] Calling analyzeFileServer (${provider})...`);
-    const analysis = await analyzeWithProvider({
+    const analyzeParams = {
       mimeType: detectedMime || mimeType,
       fileName: fileName || 'Unknown',
       batesNumber: batesNumber || 'UNKNOWN',
@@ -189,7 +182,47 @@ export async function POST(request: NextRequest) {
       textChunks: chunks,
       metadata,
       base64Data: payloadBase64,
-    });
+    };
+
+    const isAuthError = (error: any): boolean =>
+      error?.status === 401 ||
+      error?.status === 403 ||
+      error?.message?.includes('401') ||
+      error?.message?.includes('Access denied') ||
+      error?.message?.includes('invalid subscription key') ||
+      error?.message?.includes('Invalid API key') ||
+      error?.message?.includes('authentication') ||
+      error?.code === 'AuthenticationError';
+
+    let analysis: any = null;
+    let lastAuthError: any = null;
+
+    for (const provider of providers) {
+      try {
+        console.log(`[analyze] Trying provider: ${provider}`);
+        const fn = provider === 'azure' ? analyzeWithAzure
+          : provider === 'gemini' ? analyzeWithGemini
+          : analyzeWithOpenAI;
+        analysis = await fn(analyzeParams);
+        console.log(`[analyze] Success with provider: ${provider}`);
+        break;
+      } catch (err: any) {
+        if (isAuthError(err)) {
+          console.warn(`[analyze] Provider ${provider} auth failed, trying next provider...`, err?.message);
+          lastAuthError = err;
+          continue;
+        }
+        throw err; // Non-auth errors propagate immediately
+      }
+    }
+
+    if (analysis === null) {
+      console.error('[analyze] All providers failed authentication.');
+      return NextResponse.json(
+        { error: 'AI service authentication failed. Please verify your AI provider credentials and configuration.' },
+        { status: 401 }
+      );
+    }
 
     console.log('[analyze] Analysis complete:', {
       hasSummary: !!analysis.summary,
@@ -201,7 +234,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Analysis API error:', error);
 
-    const isAuthError =
+    const isAuthErr =
       error?.status === 401 ||
       error?.status === 403 ||
       error?.message?.includes('401') ||
@@ -211,7 +244,7 @@ export async function POST(request: NextRequest) {
       error?.message?.includes('authentication') ||
       error?.code === 'AuthenticationError';
 
-    if (isAuthError) {
+    if (isAuthErr) {
       console.error('[analyze] AI provider authentication failed — check your API key and endpoint configuration.');
       return NextResponse.json(
         { error: 'AI service authentication failed. Please verify your AI provider credentials and configuration.' },

@@ -63,3 +63,30 @@ export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvide
     'No AI provider API key configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI credentials.'
   );
 }
+
+/**
+ * Returns all configured providers in priority order (Azure > OpenAI > Gemini).
+ * When AI_PROVIDER is explicitly set, only that provider is returned (no fallback).
+ * Used by routes to implement automatic fallback when a provider's credentials fail.
+ */
+export function getConfiguredAIProviders(env: EnvConfig = process.env): AIProvider[] {
+  const preferred = normalizeProvider(env.AI_PROVIDER);
+
+  // If explicitly set, only use that provider — no fallback
+  if (preferred) {
+    return [getConfiguredAIProvider(env)];
+  }
+
+  const providers: AIProvider[] = [];
+  if (isAzureConfigured(env)) providers.push('azure');
+  if (env.OPENAI_API_KEY?.trim()) providers.push('openai');
+  if (env.GEMINI_API_KEY?.trim()) providers.push('gemini');
+
+  if (providers.length === 0) {
+    throw new Error(
+      'No AI provider API key configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI credentials.'
+    );
+  }
+
+  return providers;
+}
