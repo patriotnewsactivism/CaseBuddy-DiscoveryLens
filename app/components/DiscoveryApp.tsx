@@ -7,6 +7,7 @@ import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
 import { createProject, saveDocumentToCloud, updateDocumentAnalysis, updateDocumentStatus } from '@/lib/discoveryService';
 import { saveProjectLocally, saveFileBlob, loadLocalProject, loadFileBlob, listLocalProjects, LocalProjectSnapshot, LocalFileRecord } from '@/lib/localStorageService';
 import { exportToCSV, exportToJSON, exportToHTMLReport } from '@/lib/exportService';
+import { openGoogleDrivePicker, isGoogleDriveConfigured } from '@/lib/googleDriveService';
 import FilePreview from '@/app/components/FilePreview';
 import ChatInterface from '@/app/components/ChatInterface';
 import BatesBadge from '@/app/components/BatesBadge';
@@ -524,6 +525,51 @@ export default function App() {
     dirInputRef.current?.click();
   };
 
+  // ─── Google Drive Import ───────────────────────────────────────────────
+  const [isDriveImporting, setIsDriveImporting] = useState(false);
+  const handleGoogleDriveImport = useCallback(async () => {
+    setIsDriveImporting(true);
+    try {
+      const result = await openGoogleDrivePicker();
+      if (result.files.length === 0) { setIsDriveImporting(false); return; }
+
+      // Pipe downloaded files through the same pipeline as local folder upload
+      const newFiles: DiscoveryFile[] = [];
+      let currentCounter = batesCounter;
+
+      for (const file of result.files) {
+        if (file.name.startsWith('.')) continue;
+        const id = crypto.randomUUID();
+        const batesFormatted = formatBates(currentCounter);
+        newFiles.push({
+          id,
+          file,
+          name: file.name,
+          type: getFileType(file),
+          mimeType: file.type || 'application/octet-stream',
+          batesNumber: { prefix: BATES_PREFIX_DEFAULT, number: currentCounter, formatted: batesFormatted },
+          previewUrl: URL.createObjectURL(file),
+          isProcessing: true,
+          analysis: null,
+          analysisError: null,
+          tags: [],
+          customFields: {},
+        });
+        currentCounter++;
+      }
+
+      setFiles(prev => [...prev, ...newFiles]);
+      setBatesCounter(currentCounter);
+      setAnalysisTotal(prev => prev + newFiles.length);
+      newFiles.forEach(f => queueFileForAnalysis(f));
+    } catch (err) {
+      console.error('Google Drive import failed:', err);
+      setSaveError(err instanceof Error ? err.message : 'Google Drive import failed');
+    } finally {
+      setIsDriveImporting(false);
+    }
+  }, [batesCounter]);
+
   const selectedFile = files.find(f => f.id === selectedFileId);
 
   // --- Filtering & Grouping ---
@@ -704,18 +750,29 @@ export default function App() {
         
         {/* Left Sidebar: Organized Evidence System */}
         <div className={`md:w-80 w-full bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col shrink-0 ${activeMobilePanel === 'files' ? 'flex' : 'hidden md:flex'}`}>
-            {/* Folder Scraper Trigger */}
-            <div className="p-4 border-b border-slate-200">
-              <button 
+            {/* Import Sources */}
+            <div className="p-4 border-b border-slate-200 space-y-2">
+              <button
                 onClick={triggerHunt}
-                className="flex flex-col items-center justify-center w-full h-24 border-2 border-slate-300 border-dashed rounded-lg cursor-pointer bg-slate-50 hover:bg-indigo-50 hover:border-indigo-300 transition-all group"
+                className="flex flex-col items-center justify-center w-full h-20 border-2 border-slate-300 border-dashed rounded-lg cursor-pointer bg-slate-50 hover:bg-indigo-50 hover:border-indigo-300 transition-all group"
               >
-                  <div className="flex flex-col items-center justify-center pt-2">
-                      <svg className="w-6 h-6 mb-1 text-slate-400 group-hover:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                  <div className="flex flex-col items-center justify-center">
+                      <svg className="w-5 h-5 mb-1 text-slate-400 group-hover:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                       <p className="text-xs text-slate-500 font-bold group-hover:text-indigo-600">Scrape Local Folder</p>
-                      <p className="text-[10px] text-slate-400">Deep Discovery Hunt</p>
                   </div>
               </button>
+              {isGoogleDriveConfigured() && (
+                <button
+                  onClick={handleGoogleDriveImport}
+                  disabled={isDriveImporting}
+                  className="flex flex-col items-center justify-center w-full h-20 border-2 border-slate-300 border-dashed rounded-lg cursor-pointer bg-slate-50 hover:bg-blue-50 hover:border-blue-300 transition-all group disabled:opacity-50"
+                >
+                  <div className="flex flex-col items-center justify-center">
+                    <svg className="w-5 h-5 mb-1 text-slate-400 group-hover:text-blue-500 transition-colors" viewBox="0 0 24 24" fill="currentColor"><path d="M12.01 1.485c-1.22 0-2.44.63-3.15 1.89L1.16 16.565c-.72 1.26-.72 2.52 0 3.78.72 1.26 1.93 1.89 3.15 1.89h15.38c1.22 0 2.43-.63 3.15-1.89.72-1.26.72-2.52 0-3.78L15.16 3.375c-.71-1.26-1.93-1.89-3.15-1.89zm0 2.1l7.69 13.29H4.32L12.01 3.585zM7.01 18.375h9.99l-4.99 3.15-5-3.15z"/></svg>
+                    <p className="text-xs text-slate-500 font-bold group-hover:text-blue-600">{isDriveImporting ? 'Importing...' : 'Google Drive'}</p>
+                  </div>
+                </button>
+              )}
             </div>
             
             {/* Search Filter */}
