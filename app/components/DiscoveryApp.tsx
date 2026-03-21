@@ -1,11 +1,12 @@
 'use client';
 
-
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor, Project, CasePerspective } from '@/lib/types';
 import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
 import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
 import { createProject, saveDocumentToCloud, updateDocumentAnalysis, updateDocumentStatus } from '@/lib/discoveryService';
+import { saveProjectLocally, saveFileBlob, loadLocalProject, loadFileBlob, listLocalProjects, LocalProjectSnapshot, LocalFileRecord } from '@/lib/localStorageService';
+import { exportToCSV, exportToJSON, exportToHTMLReport } from '@/lib/exportService';
 import FilePreview from '@/app/components/FilePreview';
 import ChatInterface from '@/app/components/ChatInterface';
 import BatesBadge from '@/app/components/BatesBadge';
@@ -45,9 +46,24 @@ export default function App() {
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [isInitializingProject, setIsInitializingProject] = useState(false);
   
-  // Analysis Queue for rate limiting
+  // Analysis Queue – parallel with concurrency cap
+  const CONCURRENCY = 4; // Process up to 4 files simultaneously
   const analysisQueueRef = useRef<DiscoveryFile[]>([]);
+  const activeCountRef = useRef(0);
   const isProcessingQueueRef = useRef(false);
+
+  // Processing progress
+  const [analysisTotal, setAnalysisTotal] = useState(0);
+  const [analysisDone, setAnalysisDone] = useState(0);
+
+  // Local save / restore
+  const [isSavingLocally, setIsSavingLocally] = useState(false);
+  const [localSaveMsg, setLocalSaveMsg] = useState<string | null>(null);
+  const [localProjects, setLocalProjects] = useState<LocalProjectSnapshot[]>([]);
+  const [showLocalProjects, setShowLocalProjects] = useState(false);
+
+  // Export dropdown
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Refs
   const dirInputRef = useRef<HTMLInputElement>(null);
@@ -62,7 +78,7 @@ export default function App() {
     { value: CasePerspective.PLAINTIFF_SUPPORT, label: 'Supporting plaintiff', hint: 'Flag items harming plaintiff' },
   ];
 
-  // Initialize project on mount
+  // Initialize project on mount – graceful fallback if Supabase is down
   useEffect(() => {
     initializeProject();
   }, []);
@@ -81,9 +97,9 @@ export default function App() {
       setProjectName(project.name);
       console.log('Project initialized:', project);
     } catch (error) {
-      console.error('Failed to initialize project:', error);
-      const message = error instanceof Error ? error.message : 'Failed to initialize project.';
-      setSaveError(message);
+      console.warn('Cloud project init failed – running in local-only mode:', error);
+      // Don't block the user – they can still upload, analyze, save locally, and export
+      setCurrentProject(null);
     } finally {
       setIsInitializingProject(false);
     }
@@ -150,7 +166,8 @@ export default function App() {
     setBatesCounter(currentCounter);
     setIsScanning(false);
 
-    // Queue files for sequential analysis to avoid rate limiting
+    // Track total for progress bar and queue for parallel analysis
+    setAnalysisTotal(prev => prev + newFiles.length);
     newFiles.forEach(f => queueFileForAnalysis(f));
   };
 
@@ -262,28 +279,29 @@ export default function App() {
     }
   };
 
-  const processAnalysisQueue = async () => {
-    if (isProcessingQueueRef.current) return;
-    isProcessingQueueRef.current = true;
-
-    while (analysisQueueRef.current.length > 0) {
+  const drainQueue = () => {
+    while (analysisQueueRef.current.length > 0 && activeCountRef.current < CONCURRENCY) {
       const file = analysisQueueRef.current.shift();
       if (!file) break;
-      
-      await processFileAnalysis(file);
-      
-      // Small delay between files to avoid rate limiting
-      if (analysisQueueRef.current.length > 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+      activeCountRef.current++;
+      processFileAnalysis(file).finally(() => {
+        activeCountRef.current--;
+        setAnalysisDone(prev => prev + 1);
+        // Kick off next file after a small delay to stay within rate limits
+        setTimeout(drainQueue, 500);
+      });
     }
-
-    isProcessingQueueRef.current = false;
+    if (activeCountRef.current === 0 && analysisQueueRef.current.length === 0) {
+      isProcessingQueueRef.current = false;
+    }
   };
 
   const queueFileForAnalysis = (file: DiscoveryFile) => {
     analysisQueueRef.current.push(file);
-    processAnalysisQueue();
+    if (!isProcessingQueueRef.current) {
+      isProcessingQueueRef.current = true;
+    }
+    drainQueue();
   };
 
   const handleRetryAnalysis = (fileId: string) => {
@@ -427,6 +445,81 @@ export default function App() {
     }
   }, [files, projectName, casePerspective]);
 
+  // ─── Local Save / Restore ───────────────────────────────────────────────
+  const handleSaveLocally = useCallback(async () => {
+    if (files.length === 0) { setLocalSaveMsg('No files to save.'); return; }
+    setIsSavingLocally(true);
+    setLocalSaveMsg(null);
+    try {
+      const slug = projectName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'untitled';
+      const snapshot: LocalProjectSnapshot = {
+        id: slug,
+        projectName: projectName.trim(),
+        casePerspective,
+        batesCounter,
+        savedAt: new Date().toISOString(),
+        files: files.map<LocalFileRecord>(f => ({
+          id: f.id,
+          name: f.name,
+          type: f.type,
+          mimeType: f.mimeType,
+          batesNumber: f.batesNumber,
+          isProcessing: false,
+          analysis: f.analysis,
+          analysisError: f.analysisError,
+          tags: f.tags,
+          customFields: f.customFields as Record<string, unknown>,
+          cloudDocumentId: f.cloudDocumentId,
+          storagePath: f.storagePath,
+          signedUrl: f.signedUrl,
+        })),
+      };
+      await saveProjectLocally(snapshot);
+      // Save file blobs in parallel
+      await Promise.all(files.map(f => saveFileBlob(f.id, f.file)));
+      setLocalSaveMsg('Saved locally.');
+    } catch (err) {
+      console.error('Local save failed:', err);
+      setLocalSaveMsg('Local save failed.');
+    } finally {
+      setIsSavingLocally(false);
+    }
+  }, [files, projectName, casePerspective, batesCounter]);
+
+  const handleLoadLocalProject = useCallback(async (snapshot: LocalProjectSnapshot) => {
+    setShowLocalProjects(false);
+    setProjectName(snapshot.projectName);
+    setCasePerspective(snapshot.casePerspective);
+    setBatesCounter(snapshot.batesCounter);
+
+    const restoredFiles: DiscoveryFile[] = [];
+    for (const rec of snapshot.files) {
+      const blob = await loadFileBlob(rec.id);
+      if (!blob) continue;
+      const file = new File([blob], rec.name, { type: rec.mimeType });
+      restoredFiles.push({
+        ...rec,
+        file,
+        previewUrl: URL.createObjectURL(file),
+        customFields: (rec.customFields ?? {}) as Record<string, any>,
+      });
+    }
+    setFiles(restoredFiles);
+    setSelectedFileId(null);
+    setViewMode(ViewMode.DASHBOARD);
+  }, []);
+
+  const handleShowLocalProjects = useCallback(async () => {
+    const projects = await listLocalProjects();
+    setLocalProjects(projects);
+    setShowLocalProjects(true);
+  }, []);
+
+  // ─── Export ────────────────────────────────────────────────────────────
+  const handleExportCSV = useCallback(() => { exportToCSV(files, projectName); setShowExportMenu(false); }, [files, projectName]);
+  const handleExportJSON = useCallback(() => { exportToJSON(files, projectName, casePerspective); setShowExportMenu(false); }, [files, projectName, casePerspective]);
+  const handleExportPDF = useCallback(() => { exportToHTMLReport(files, projectName, casePerspective); setShowExportMenu(false); }, [files, projectName, casePerspective]);
+
   const triggerHunt = () => {
     dirInputRef.current?.click();
   };
@@ -502,14 +595,14 @@ export default function App() {
              )}
            </div>
            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 w-full">
-             <div className="flex items-center gap-2 w-full sm:w-80">
+             <div className="flex items-center gap-2 w-full flex-wrap">
                <label className="sr-only" htmlFor="project-name">Project name</label>
                <input
                  id="project-name"
                  type="text"
                  value={projectName}
                  onChange={(e) => setProjectName(e.target.value)}
-                 className="flex-1 text-sm bg-slate-800 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                 className="flex-1 min-w-[140px] text-sm bg-slate-800 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                  placeholder="Name this project..."
                />
                <button
@@ -517,12 +610,54 @@ export default function App() {
                  disabled={isSavingProject}
                  className={`px-3 py-2 rounded text-sm font-semibold transition-colors ${isSavingProject ? 'bg-slate-700 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500'} text-white shadow`}
                >
-                 {isSavingProject ? 'Saving...' : 'Save to Cloud'}
+                 {isSavingProject ? 'Saving...' : 'Cloud'}
                </button>
+               <button
+                 onClick={handleSaveLocally}
+                 disabled={isSavingLocally}
+                 className={`px-3 py-2 rounded text-sm font-semibold transition-colors ${isSavingLocally ? 'bg-slate-700 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500'} text-white shadow`}
+               >
+                 {isSavingLocally ? 'Saving...' : 'Local'}
+               </button>
+               <button
+                 onClick={handleShowLocalProjects}
+                 className="px-3 py-2 rounded text-sm font-semibold bg-slate-700 hover:bg-slate-600 text-white shadow transition-colors"
+               >
+                 Restore
+               </button>
+               {/* Export dropdown */}
+               <div className="relative">
+                 <button
+                   onClick={() => setShowExportMenu(!showExportMenu)}
+                   disabled={files.length === 0}
+                   className={`px-3 py-2 rounded text-sm font-semibold transition-colors ${files.length === 0 ? 'bg-slate-700 cursor-not-allowed opacity-50' : 'bg-amber-600 hover:bg-amber-500'} text-white shadow`}
+                 >
+                   Export
+                 </button>
+                 {showExportMenu && (
+                   <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 min-w-[160px]">
+                     <button onClick={handleExportPDF} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">PDF Report</button>
+                     <button onClick={handleExportCSV} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">CSV Spreadsheet</button>
+                     <button onClick={handleExportJSON} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">JSON Data</button>
+                   </div>
+                 )}
+               </div>
              </div>
+             {/* Progress bar for analysis */}
+             {analysisTotal > 0 && analysisDone < analysisTotal && (
+               <div className="w-full mt-1">
+                 <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                   <span>Analyzing {analysisDone}/{analysisTotal}</span>
+                   <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                     <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${(analysisDone / analysisTotal) * 100}%` }} />
+                   </div>
+                 </div>
+               </div>
+             )}
              <div className="text-xs min-h-[20px] text-right">
                {saveMessage && <span className="text-emerald-200">{saveMessage}</span>}
                {saveError && <span className="text-amber-200">{saveError}</span>}
+               {localSaveMsg && <span className="text-emerald-200 ml-2">{localSaveMsg}</span>}
              </div>
            </div>
            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 w-full">
@@ -777,6 +912,41 @@ export default function App() {
         )}
 
       </div>
+
+      {/* Local Projects Restore Modal */}
+      {showLocalProjects && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[70vh] flex flex-col">
+            <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+              <h2 className="font-serif font-bold text-slate-800">Restore Local Project</h2>
+              <button onClick={() => setShowLocalProjects(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {localProjects.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-8">No locally saved projects found.</p>
+              ) : (
+                <div className="space-y-2">
+                  {localProjects.map(proj => (
+                    <button
+                      key={proj.id}
+                      onClick={() => handleLoadLocalProject(proj)}
+                      className="w-full text-left p-3 rounded-lg border border-slate-200 hover:bg-indigo-50 hover:border-indigo-200 transition-colors"
+                    >
+                      <div className="font-semibold text-sm text-slate-800">{proj.projectName}</div>
+                      <div className="text-xs text-slate-400">{proj.files.length} files &middot; {new Date(proj.savedAt).toLocaleString()}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close export menu on outside click */}
+      {showExportMenu && (
+        <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+      )}
     </div>
   );
 }
