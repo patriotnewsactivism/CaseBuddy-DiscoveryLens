@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseAdmin();
 
-    const { data: report, error } = await supabase
+    const { data: report, error } = await (supabase as any)
       .from('document_reports')
       .insert({
         project_id: projectId,
@@ -60,7 +60,8 @@ export async function GET(request: NextRequest) {
 
     const supabase = getSupabaseAdmin();
 
-    let query = supabase
+    const db = supabase as any;
+    let query = db
       .from('document_reports')
       .select('*')
       .order('generated_at', { ascending: false })
