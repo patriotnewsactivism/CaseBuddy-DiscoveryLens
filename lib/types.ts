@@ -20,7 +20,26 @@ export interface AnalysisData {
   relevantFacts: string[];
   transcription?: string; // For A/V
   sentiment?: 'Hostile' | 'Cooperative' | 'Neutral';
+  reportGeneratedAt?: string; // ISO timestamp when report was generated
 }
+
+export interface ExportFields {
+  summary: boolean;
+  dates: boolean;
+  facts: boolean;
+  entities: boolean;
+  transcription: boolean;
+  sentiment: boolean;
+}
+
+export const DEFAULT_EXPORT_FIELDS: ExportFields = {
+  summary: true,
+  dates: true,
+  facts: true,
+  entities: true,
+  transcription: true,
+  sentiment: true,
+};
 
 export enum CasePerspective {
   CLIENT = 'client',

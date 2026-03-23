@@ -6,8 +6,9 @@ import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
 import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
 import { createProject, saveDocumentToCloud, updateDocumentAnalysis, updateDocumentStatus } from '@/lib/discoveryService';
 import { saveProjectLocally, saveFileBlob, loadLocalProject, loadFileBlob, listLocalProjects, LocalProjectSnapshot, LocalFileRecord } from '@/lib/localStorageService';
-import { exportToCSV, exportToJSON, exportToHTMLReport } from '@/lib/exportService';
+import { ExportFields } from '@/lib/types';
 import FilePreview from '@/app/components/FilePreview';
+import ExportModal from '@/app/components/ExportModal';
 import ChatInterface from '@/app/components/ChatInterface';
 import BatesBadge from '@/app/components/BatesBadge';
 import Timeline from '@/app/components/Timeline';
@@ -62,8 +63,9 @@ export default function App() {
   const [localProjects, setLocalProjects] = useState<LocalProjectSnapshot[]>([]);
   const [showLocalProjects, setShowLocalProjects] = useState(false);
 
-  // Export dropdown
-  const [showExportMenu, setShowExportMenu] = useState(false);
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportModalFiles, setExportModalFiles] = useState<DiscoveryFile[]>([]);
 
   // Refs
   const dirInputRef = useRef<HTMLInputElement>(null);
@@ -516,9 +518,38 @@ export default function App() {
   }, []);
 
   // ─── Export ────────────────────────────────────────────────────────────
-  const handleExportCSV = useCallback(() => { exportToCSV(files, projectName); setShowExportMenu(false); }, [files, projectName]);
-  const handleExportJSON = useCallback(() => { exportToJSON(files, projectName, casePerspective); setShowExportMenu(false); }, [files, projectName, casePerspective]);
-  const handleExportPDF = useCallback(() => { exportToHTMLReport(files, projectName, casePerspective); setShowExportMenu(false); }, [files, projectName, casePerspective]);
+
+  // Open ExportModal scoped to all files
+  const handleOpenExportModal = useCallback(() => {
+    setExportModalFiles(files);
+    setShowExportModal(true);
+  }, [files]);
+
+  // Open ExportModal scoped to a single document (from FilePreview)
+  const handleExportSingleDocument = useCallback((file: DiscoveryFile) => {
+    setExportModalFiles([file]);
+    setShowExportModal(true);
+  }, []);
+
+  // Record export to database (fire-and-forget)
+  const handleRecordExport = useCallback(async (documentIds: string[], format: string, fields: ExportFields) => {
+    if (documentIds.length === 0 || !currentProject) return;
+    try {
+      await fetch('/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: currentProject.id,
+          documentIds,
+          format,
+          fieldsIncluded: fields,
+          reportName: `${projectName} — ${format.toUpperCase()} — ${new Date().toISOString()}`,
+        }),
+      });
+    } catch {
+      // Non-critical — don't block the user
+    }
+  }, [currentProject, projectName]);
 
   const triggerHunt = () => {
     dirInputRef.current?.click();
@@ -625,23 +656,17 @@ export default function App() {
                >
                  Restore
                </button>
-               {/* Export dropdown */}
-               <div className="relative">
-                 <button
-                   onClick={() => setShowExportMenu(!showExportMenu)}
-                   disabled={files.length === 0}
-                   className={`px-3 py-2 rounded text-sm font-semibold transition-colors ${files.length === 0 ? 'bg-slate-700 cursor-not-allowed opacity-50' : 'bg-amber-600 hover:bg-amber-500'} text-white shadow`}
-                 >
-                   Export
-                 </button>
-                 {showExportMenu && (
-                   <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 min-w-[160px]">
-                     <button onClick={handleExportPDF} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">PDF Report</button>
-                     <button onClick={handleExportCSV} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">CSV Spreadsheet</button>
-                     <button onClick={handleExportJSON} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700">JSON Data</button>
-                   </div>
-                 )}
-               </div>
+               {/* Export button — opens modal */}
+               <button
+                 onClick={handleOpenExportModal}
+                 disabled={files.length === 0}
+                 className={`px-3 py-2 rounded text-sm font-semibold transition-colors flex items-center gap-1.5 ${files.length === 0 ? 'bg-slate-700 cursor-not-allowed opacity-50' : 'bg-amber-600 hover:bg-amber-500'} text-white shadow`}
+               >
+                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                 </svg>
+                 Export
+               </button>
              </div>
              {/* Progress bar for analysis */}
              {analysisTotal > 0 && analysisDone < analysisTotal && (
@@ -883,7 +908,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  <FilePreview file={selectedFile} />
+                  <FilePreview file={selectedFile} onExportDocument={handleExportSingleDocument} />
                </div>
              )}
              
@@ -943,9 +968,15 @@ export default function App() {
         </div>
       )}
 
-      {/* Close export menu on outside click */}
-      {showExportMenu && (
-        <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          files={exportModalFiles}
+          projectName={projectName}
+          casePerspective={casePerspective}
+          onClose={() => setShowExportModal(false)}
+          onRecordExport={handleRecordExport}
+        />
       )}
     </div>
   );

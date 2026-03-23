@@ -46,12 +46,18 @@ export async function PATCH(
       analysis?: Database['public']['Tables']['documents']['Row']['analysis'];
       status?: Database['public']['Tables']['documents']['Row']['status'];
       errorMessage?: string | null;
+      // Dedicated mirror columns for CaseBuddy compatibility
+      summary?: string | null;
+      keyFacts?: string | null;
+      extractedText?: string | null;
+      evidenceType?: string | null;
+      sentiment?: string | null;
     };
-    const { analysis, status, errorMessage } = body;
+    const { analysis, status, errorMessage, summary, keyFacts, extractedText, evidenceType, sentiment } = body;
 
     const supabase = getSupabaseAdmin();
 
-    const updates: Partial<Database['public']['Tables']['documents']['Update']> = {};
+    const updates: Record<string, unknown> = {};
     if (analysis !== undefined) updates.analysis = analysis;
     if (status !== undefined) {
       if (status === 'processing' || status === 'complete' || status === 'failed') {
@@ -64,10 +70,16 @@ export async function PATCH(
       }
     }
     if (errorMessage !== undefined) updates.error_message = errorMessage;
+    // Mirror individual fields for CaseBuddy querying
+    if (summary !== undefined) updates.summary = summary;
+    if (keyFacts !== undefined) updates.key_facts = keyFacts;
+    if (extractedText !== undefined) updates.extracted_text = extractedText;
+    if (evidenceType !== undefined) updates.evidence_type = evidenceType;
+    if (sentiment !== undefined) updates.sentiment = sentiment;
 
     const { data: document, error } = await supabase
       .from('documents')
-      .update(updates)
+      .update(updates as any)
       .eq('id', id)
       .select()
       .single();
