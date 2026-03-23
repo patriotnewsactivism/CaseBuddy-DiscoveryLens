@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
       batesNumber,
       batesFormatted,
       storagePath,
+      contentHash,
       status = 'pending',
     } = body;
 
@@ -29,6 +30,25 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin();
+
+    // Duplicate detection: if a content hash is supplied, check for an existing
+    // document with the same bytes in this project before inserting.
+    if (contentHash) {
+      const { data: existing } = await supabase
+        .from('documents')
+        .select('*')
+        .eq('content_hash', contentHash)
+        .eq('project_id', effectiveProjectId)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        return NextResponse.json(
+          { document: existing, duplicate: true },
+          { status: 409 }
+        );
+      }
+    }
 
     // Build document object compatible with remote schema
     const documentData: Record<string, unknown> = {
@@ -53,6 +73,7 @@ export async function POST(request: NextRequest) {
     if (fileSize !== undefined) documentData.file_size = fileSize;
     if (batesPrefix) documentData.bates_prefix = batesPrefix;
     if (batesNumber !== undefined) documentData.bates_number = String(batesNumber);
+    if (contentHash) documentData.content_hash = contentHash;
 
     const { data: document, error } = await supabase
       .from('documents')

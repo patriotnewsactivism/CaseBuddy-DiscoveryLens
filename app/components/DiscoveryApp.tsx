@@ -192,7 +192,21 @@ export default function App() {
       if (currentProject && fileSize < MAX_STORAGE_SIZE) {
         try {
           console.log('[processFileAnalysis] Saving to cloud storage...');
-          const { documentId, storagePath, signedUrl } = await saveDocumentToCloud(file, currentProject.id);
+          const cloudResult = await saveDocumentToCloud(file, currentProject.id);
+          const { documentId, storagePath, signedUrl } = cloudResult;
+
+          if ((cloudResult as any).duplicate) {
+            console.log(`[processFileAnalysis] Duplicate detected for ${file.name} — skipping re-analysis`);
+            setFiles(prev => prev.map(f => {
+              if (f.id === file.id) {
+                return { ...f, isProcessing: false, cloudDocumentId: documentId, storagePath, analysisError: 'Duplicate — already in project' };
+              }
+              return f;
+            }));
+            setAnalysisDone(prev => prev + 1);
+            return;
+          }
+
           analysisTarget = { ...file, cloudDocumentId: documentId, storagePath, signedUrl };
 
           console.log('[processFileAnalysis] Cloud save complete:', {

@@ -87,7 +87,7 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
 
     const { storagePath, signedUrl } = await storageResponse.json();
 
-    // Step 2: Create document record in database
+    // Step 2: Create document record in database (server checks for duplicate by hash)
     const docResponse = await fetch('/api/documents', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -101,10 +101,22 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
         batesNumber: discoveryFile.batesNumber.number,
         batesFormatted: discoveryFile.batesNumber.formatted,
         storagePath,
+        contentHash: checksum,
         analysis: discoveryFile.analysis,
         status: discoveryFile.isProcessing ? 'processing' : 'complete',
       }),
     });
+
+    // 409 means a document with identical content already exists — return it as-is
+    if (docResponse.status === 409) {
+      const { document: existing } = await docResponse.json();
+      return {
+        documentId: existing.id,
+        storagePath: existing.storage_path,
+        signedUrl: null,
+        duplicate: true,
+      };
+    }
 
     if (!docResponse.ok) {
       throw new Error('Failed to create document record');
