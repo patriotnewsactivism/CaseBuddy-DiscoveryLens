@@ -107,7 +107,8 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
       }),
     });
 
-    // 409 means a document with identical content already exists — return it as-is
+    // 409 means a document with identical content already exists — return it as-is,
+    // including any analysis the server already has so the caller can skip re-analysis.
     if (docResponse.status === 409) {
       const { document: existing } = await docResponse.json();
       return {
@@ -115,6 +116,7 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
         storagePath: existing.storage_path,
         signedUrl: null,
         duplicate: true,
+        existingAnalysis: existing.analysis ?? null,
       };
     }
 

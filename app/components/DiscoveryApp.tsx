@@ -85,6 +85,43 @@ export default function App() {
     initializeProject();
   }, []);
 
+  // Auto-save project manifest every AUTO_SAVE_EVERY completed analyses so that
+  // OCR work isn't lost if the browser tab is closed before the user clicks Cloud.
+  const AUTO_SAVE_EVERY = 5;
+  useEffect(() => {
+    if (analysisDone === 0 || analysisDone % AUTO_SAVE_EVERY !== 0) return;
+    // Only include files that have already been persisted to cloud storage
+    const cloudFiles = files.filter(f => !f.isProcessing && f.storagePath);
+    if (cloudFiles.length === 0) return;
+    fetch('/api/projects/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectName,
+        casePerspective,
+        files: cloudFiles.map(f => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          size: f.file?.size ?? 0,
+          batesNumber: f.batesNumber,
+          analysis: f.analysis,
+          storageKey: f.storagePath,
+        })),
+      }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        setLastManifestKey(data.manifestKey || null);
+        console.log(`[auto-save] Manifest saved after ${analysisDone} analyses`);
+      })
+      .catch(() => {
+        // Non-critical — per-document Supabase saves already protect the work
+        console.warn('[auto-save] Manifest save failed');
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisDone]);
+
   const initializeProject = async () => {
     setIsInitializingProject(true);
     try {
@@ -196,14 +233,23 @@ export default function App() {
           const { documentId, storagePath, signedUrl } = cloudResult;
 
           if ((cloudResult as any).duplicate) {
-            console.log(`[processFileAnalysis] Duplicate detected for ${file.name} — skipping re-analysis`);
+            const existingAnalysis = (cloudResult as any).existingAnalysis;
+            console.log(`[processFileAnalysis] Duplicate detected for ${file.name} — loading existing analysis`);
             setFiles(prev => prev.map(f => {
               if (f.id === file.id) {
-                return { ...f, isProcessing: false, cloudDocumentId: documentId, storagePath, analysisError: 'Duplicate — already in project' };
+                return {
+                  ...f,
+                  isProcessing: false,
+                  cloudDocumentId: documentId,
+                  storagePath,
+                  // Restore prior analysis so the file remains exportable
+                  analysis: existingAnalysis ?? f.analysis,
+                  analysisError: null,
+                };
               }
               return f;
             }));
-            setAnalysisDone(prev => prev + 1);
+            // Do NOT call setAnalysisDone here — drainQueue's .finally() handles it
             return;
           }
 
