@@ -124,12 +124,20 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
 }
 
 export async function updateDocumentAnalysis(documentId: string, analysis: any) {
+  // Mirror key analysis fields into dedicated columns for CaseBuddy to query,
+  // while also storing the full structured JSON in the analysis column.
   const response = await fetch(`/api/documents/${documentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       analysis,
       status: 'complete',
+      // Dedicated columns for easier querying from CaseBuddy and other consumers
+      summary: analysis?.summary ?? null,
+      keyFacts: analysis?.relevantFacts?.join('\n') ?? null,
+      extractedText: analysis?.transcription ?? null,
+      evidenceType: analysis?.evidenceType ?? null,
+      sentiment: analysis?.sentiment ?? null,
     }),
   });
 
