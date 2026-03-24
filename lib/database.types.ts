@@ -214,6 +214,44 @@ export type Database = {
         };
         Relationships: [];
       };
+      document_reports: {
+        Row: {
+          id: string;
+          project_id: string | null;
+          report_name: string;
+          format: string;
+          fields_included: Json;
+          document_ids: string[];
+          generated_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id?: string | null;
+          report_name: string;
+          format: string;
+          fields_included?: Json;
+          document_ids: string[];
+          generated_at?: string;
+        };
+        Update: {
+          id?: string;
+          project_id?: string | null;
+          report_name?: string;
+          format?: string;
+          fields_included?: Json;
+          document_ids?: string[];
+          generated_at?: string;
+        };
+        Relationships: [
+          {
+            columns: ['project_id'];
+            foreignKeyName: 'document_reports_project_id_fkey';
+            referencedColumns: ['id'];
+            referencedRelation: 'projects';
+            relationType: 'many-to-one';
+          }
+        ];
+      };
       cases: {
         Row: {
           id: string;
