@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
+import { isAIAuthError, isAIProviderConfigError } from '@/lib/aiError';
 import { analyzeFileServer as analyzeWithAzure } from '@/lib/azureOpenAIService';
 import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
 import { analyzeFileServer as analyzeWithGemini } from '@/lib/geminiServerService';
@@ -201,17 +202,15 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Analysis API error:', error);
 
-    const isAuthError =
-      error?.status === 401 ||
-      error?.status === 403 ||
-      error?.message?.includes('401') ||
-      error?.message?.includes('Access denied') ||
-      error?.message?.includes('invalid subscription key') ||
-      error?.message?.includes('Invalid API key') ||
-      error?.message?.includes('authentication') ||
-      error?.code === 'AuthenticationError';
+    if (isAIProviderConfigError(error)) {
+      console.error('[analyze] AI provider configuration is invalid:', error);
+      return NextResponse.json(
+        { error: 'AI provider configuration is invalid. Verify AI_PROVIDER and server-side API credentials.' },
+        { status: 500 }
+      );
+    }
 
-    if (isAuthError) {
+    if (isAIAuthError(error)) {
       console.error('[analyze] AI provider authentication failed — check your API key and endpoint configuration.');
       return NextResponse.json(
         { error: 'AI service authentication failed. Please verify your AI provider credentials and configuration.' },
