@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyClient = any;
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -19,7 +22,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const supabase = getSupabaseAdmin();
 
     const { data: job, error } = await supabase
-      .from('job_queue')
+      .from('job_queue' as any)
       .select('*')
       .eq('id', id)
       .single();
@@ -59,7 +62,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const supabase = getSupabaseAdmin();
 
     const { data: job, error: fetchError } = await supabase
-      .from('job_queue')
+      .from('job_queue' as any)
       .select('status')
       .eq('id', id)
       .single();
@@ -82,7 +85,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     const { error: deleteError } = await supabase
-      .from('job_queue')
+      .from('job_queue' as any)
       .delete()
       .eq('id', id);
 
@@ -159,7 +162,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     const { data: job, error } = await supabase
-      .from('job_queue')
+      .from('job_queue' as any)
       .update(updateData)
       .eq('id', id)
       .select()
