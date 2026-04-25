@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyClient = any;
-
 interface RouteParams {
   params: Promise<{ id: string }>;
+}
+
+// job_queue is not yet in the generated types — use untyped client for these routes
+function getDb() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return getSupabaseAdmin() as any;
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -19,10 +22,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const supabase = getSupabaseAdmin();
-
-    const { data: job, error } = await supabase
-      .from('job_queue' as any)
+    const { data: job, error } = await getDb()
+      .from('job_queue')
       .select('*')
       .eq('id', id)
       .single();
@@ -59,10 +60,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const supabase = getSupabaseAdmin();
-
-    const { data: job, error: fetchError } = await supabase
-      .from('job_queue' as any)
+    const { data: job, error: fetchError } = await getDb()
+      .from('job_queue')
       .select('status')
       .eq('id', id)
       .single();
@@ -77,15 +76,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       throw new Error(`Failed to fetch job: ${fetchError.message}`);
     }
 
-    if (job.status === 'processing') {
+    if (job?.status === 'processing') {
       return NextResponse.json(
         { error: 'Cannot delete a job that is currently processing' },
         { status: 400 }
       );
     }
 
-    const { error: deleteError } = await supabase
-      .from('job_queue' as any)
+    const { error: deleteError } = await getDb()
+      .from('job_queue')
       .delete()
       .eq('id', id);
 
@@ -118,20 +117,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const { status, priority, maxAttempts } = body;
 
-    const supabase = getSupabaseAdmin();
-
     const updateData: Record<string, unknown> = {};
-    
+
     if (status !== undefined) {
-      const validStatuses = ['pending', 'processing', 'complete', 'failed'] as const;
-      const typedStatus = validStatuses.find(s => s === status);
-      if (!typedStatus) {
+      const validStatuses = ['pending', 'processing', 'complete', 'failed'];
+      if (!validStatuses.includes(status)) {
         return NextResponse.json(
           { error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` },
           { status: 400 }
         );
       }
-      updateData.status = typedStatus;
+      updateData.status = status;
     }
 
     if (priority !== undefined) {
@@ -161,8 +157,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const { data: job, error } = await supabase
-      .from('job_queue' as any)
+    const { data: job, error } = await getDb()
+      .from('job_queue')
       .update(updateData)
       .eq('id', id)
       .select()
