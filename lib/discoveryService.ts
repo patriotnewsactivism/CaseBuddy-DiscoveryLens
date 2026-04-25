@@ -6,11 +6,11 @@ import { sha256FromFile } from './checksum';
  */
 
 // Project Operations
-export async function createProject(name: string, description?: string, batesPrefix: string = 'DEF') {
+export async function createProject(name: string, description?: string, batesPrefix: string = 'DEF', caseId?: string | null) {
   const response = await fetch('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description, batesPrefix }),
+    body: JSON.stringify({ name, description, batesPrefix, caseId: caseId ?? null }),
   });
 
   if (!response.ok) {
@@ -179,3 +179,4 @@ export async function deleteDocument(documentId: string) {
 
   return response.json();
 }
+
