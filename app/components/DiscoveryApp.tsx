@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/app/contexts/AuthContext';
+
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor, Project, CasePerspective } from '@/lib/types';
 import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
@@ -28,6 +30,7 @@ const formatBates = (num: number): string => {
 };
 
 export default function App() {
+  const { user, signOut } = useAuth();
   // --- State ---
   const [files, setFiles] = useState<DiscoveryFile[]>([]);
   const [batesCounter, setBatesCounter] = useState(1);
