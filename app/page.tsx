@@ -1,5 +1,10 @@
+import { AuthGuard } from './components/AuthGuard';
 import DiscoveryApp from './components/DiscoveryApp';
 
 export default function HomePage() {
-  return <DiscoveryApp />;
+  return (
+    <AuthGuard>
+      <DiscoveryApp />
+    </AuthGuard>
+  );
 }
