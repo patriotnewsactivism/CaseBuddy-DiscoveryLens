@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdmin();
 
     const { data: report, error } = await supabase
-      .from('document_reports')
+      .from('document_reports' as any)
       .insert({
         project_id: projectId,
         report_name: reportName || `Export — ${format.toUpperCase()} — ${new Date().toISOString()}`,
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabaseAdmin();
 
     let query = supabase
-      .from('document_reports')
+      .from('document_reports' as any)
       .select('*')
       .order('generated_at', { ascending: false })
       .limit(50);
