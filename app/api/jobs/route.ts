@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 import type { Database } from '@/lib/database.types';
 
-type JobType = Database['public']['Tables']['job_queue']['Row']['job_type'];
+type JobType = 'extract' | 'analyze' | 'transcribe';
 
 interface CreateJobRequest {
   projectId: string;
@@ -60,7 +60,7 @@ async function handleSingleCreate(body: CreateJobRequest): Promise<NextResponse>
   const supabase = getSupabaseAdmin();
 
   const { data: job, error } = await supabase
-    .from('job_queue')
+    .from('job_queue' as any)
     .insert({
       project_id: projectId,
       document_id: documentId || null,
@@ -119,7 +119,7 @@ async function handleBatchCreate(body: BatchJobRequest): Promise<NextResponse> {
   }));
 
   const { data: createdJobs, error } = await supabase
-    .from('job_queue')
+    .from('job_queue' as any)
     .insert(jobsToInsert)
     .select();
 
@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabaseAdmin();
 
     let query = supabase
-      .from('job_queue')
+      .from('job_queue' as any)
       .select('*')
       .order('created_at', { ascending: false })
       .limit(limit);
