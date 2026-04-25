@@ -4016,7 +4016,6 @@ export type Database = {
           },
         ]
       }
-    }
       job_queue: {
         Row: {
           attempts: number | null
@@ -4092,6 +4091,7 @@ export type Database = {
           },
         ]
       }
+    }
     Views: {
       v_discovery_case_sync: {
         Row: {
