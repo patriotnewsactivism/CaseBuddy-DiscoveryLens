@@ -4017,6 +4017,81 @@ export type Database = {
         ]
       }
     }
+      job_queue: {
+        Row: {
+          attempts: number | null
+          case_id: string | null
+          completed_at: string | null
+          created_at: string | null
+          document_id: string | null
+          error_message: string | null
+          id: string
+          job_type: string | null
+          max_attempts: number | null
+          payload: Json | null
+          priority: number | null
+          project_id: string | null
+          result: Json | null
+          started_at: string | null
+          status: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          attempts?: number | null
+          case_id?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          document_id?: string | null
+          error_message?: string | null
+          id?: string
+          job_type?: string | null
+          max_attempts?: number | null
+          payload?: Json | null
+          priority?: number | null
+          project_id?: string | null
+          result?: Json | null
+          started_at?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          attempts?: number | null
+          case_id?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          document_id?: string | null
+          error_message?: string | null
+          id?: string
+          job_type?: string | null
+          max_attempts?: number | null
+          payload?: Json | null
+          priority?: number | null
+          project_id?: string | null
+          result?: Json | null
+          started_at?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "processing_queue_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "processing_queue_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "v_discovery_case_sync"
+            referencedColumns: ["document_id"]
+          },
+        ]
+      }
     Views: {
       v_discovery_case_sync: {
         Row: {
