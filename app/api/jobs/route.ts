@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
-import type { Database } from '@/lib/database.types';
 
 type JobType = 'extract' | 'analyze' | 'transcribe';
 
@@ -20,14 +19,23 @@ interface BatchJobRequest {
   }>;
 }
 
+// job_queue is not yet in the generated types — use untyped client for these routes
+function getDb() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return getSupabaseAdmin() as any;
+}
+
+const VALID_JOB_TYPES: JobType[] = ['extract', 'analyze', 'transcribe'];
+const VALID_STATUSES = ['pending', 'processing', 'complete', 'failed'] as const;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    
+
     if ('jobs' in body && Array.isArray(body.jobs)) {
       return handleBatchCreate(body as BatchJobRequest);
     }
-    
+
     return handleSingleCreate(body as CreateJobRequest);
   } catch (error: unknown) {
     console.error('Error creating job:', error);
@@ -49,18 +57,15 @@ async function handleSingleCreate(body: CreateJobRequest): Promise<NextResponse>
     );
   }
 
-  const validJobTypes = ['extract', 'analyze', 'transcribe'];
-  if (!validJobTypes.includes(jobType)) {
+  if (!VALID_JOB_TYPES.includes(jobType)) {
     return NextResponse.json(
-      { error: `Invalid jobType. Must be one of: ${validJobTypes.join(', ')}` },
+      { error: `Invalid jobType. Must be one of: ${VALID_JOB_TYPES.join(', ')}` },
       { status: 400 }
     );
   }
 
-  const supabase = getSupabaseAdmin();
-
-  const { data: job, error } = await supabase
-    .from('job_queue' as any)
+  const { data: job, error } = await getDb()
+    .from('job_queue')
     .insert({
       project_id: projectId,
       document_id: documentId || null,
@@ -90,7 +95,6 @@ async function handleBatchCreate(body: BatchJobRequest): Promise<NextResponse> {
     );
   }
 
-  const validJobTypes = ['extract', 'analyze', 'transcribe'];
   for (const job of jobs) {
     if (!job.documentId || !job.jobType) {
       return NextResponse.json(
@@ -98,28 +102,26 @@ async function handleBatchCreate(body: BatchJobRequest): Promise<NextResponse> {
         { status: 400 }
       );
     }
-    if (!validJobTypes.includes(job.jobType)) {
+    if (!VALID_JOB_TYPES.includes(job.jobType)) {
       return NextResponse.json(
-        { error: `Invalid jobType. Must be one of: ${validJobTypes.join(', ')}` },
+        { error: `Invalid jobType. Must be one of: ${VALID_JOB_TYPES.join(', ')}` },
         { status: 400 }
       );
     }
   }
-
-  const supabase = getSupabaseAdmin();
 
   const jobsToInsert = jobs.map(job => ({
     project_id: projectId,
     document_id: job.documentId,
     job_type: job.jobType,
     priority: job.priority || 0,
-    status: 'pending' as const,
+    status: 'pending',
     attempts: 0,
     max_attempts: 3,
   }));
 
-  const { data: createdJobs, error } = await supabase
-    .from('job_queue' as any)
+  const { data: createdJobs, error } = await getDb()
+    .from('job_queue')
     .insert(jobsToInsert)
     .select();
 
@@ -137,10 +139,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const limit = parseInt(searchParams.get('limit') || '50', 10);
 
-    const supabase = getSupabaseAdmin();
-
-    let query = supabase
-      .from('job_queue' as any)
+    let query = getDb()
+      .from('job_queue')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -150,15 +150,13 @@ export async function GET(request: NextRequest) {
     }
 
     if (status) {
-      const validStatuses = ['pending', 'processing', 'complete', 'failed'] as const;
-      const typedStatus = validStatuses.find(s => s === status);
-      if (!typedStatus) {
+      if (!VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])) {
         return NextResponse.json(
-          { error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` },
+          { error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` },
           { status: 400 }
         );
       }
-      query = query.eq('status', typedStatus);
+      query = query.eq('status', status);
     }
 
     const { data: jobs, error } = await query;
