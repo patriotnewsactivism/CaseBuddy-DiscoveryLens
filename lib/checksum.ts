@@ -22,6 +22,12 @@ export async function sha256FromBuffer(input: ArrayBuffer | Buffer): Promise<str
 }
 
 export async function sha256FromFile(file: File | Blob): Promise<string> {
+  // On mobile, skip hashing for files over 10MB to avoid OOM browser crashes.
+  // Server will still accept the upload without a checksum.
+  const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  if (isMobile && file.size > 10 * 1024 * 1024) {
+    return '';
+  }
   const arrayBuffer = await file.arrayBuffer();
   return sha256FromBuffer(arrayBuffer);
 }
