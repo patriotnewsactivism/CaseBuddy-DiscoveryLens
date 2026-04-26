@@ -389,8 +389,8 @@ class JobWorker {
 
   private async handleJobFailure(job: JobQueueRow, error: Error): Promise<void> {
     const supabase = getSupabaseAdmin();
-    const newAttempts = job.attempts + 1;
-    const shouldRetry = newAttempts < job.max_attempts;
+    const newAttempts = (job.attempts ?? 0) + 1;
+    const shouldRetry = newAttempts < (job.max_attempts ?? 3);
 
     if (shouldRetry) {
       await supabase
