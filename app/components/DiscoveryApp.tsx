@@ -51,7 +51,9 @@ export default function App() {
   const [isInitializingProject, setIsInitializingProject] = useState(false);
   
   // Analysis Queue – parallel with concurrency cap
-  const CONCURRENCY = 4; // Process up to 4 files simultaneously
+  // Detect mobile: use lower concurrency to prevent OOM browser crashes
+  const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  const CONCURRENCY = isMobile ? 1 : 3; // Sequential on mobile to prevent memory crashes
   const analysisQueueRef = useRef<DiscoveryFile[]>([]);
   const activeCountRef = useRef(0);
   const isProcessingQueueRef = useRef(false);
@@ -289,12 +291,18 @@ export default function App() {
       const file = analysisQueueRef.current.shift();
       if (!file) break;
       activeCountRef.current++;
-      processFileAnalysis(file).finally(() => {
-        activeCountRef.current--;
-        setAnalysisDone(prev => prev + 1);
-        // Kick off next file after a small delay to stay within rate limits
-        setTimeout(drainQueue, 500);
-      });
+      processFileAnalysis(file)
+        .catch((err) => {
+          // Swallow unhandled rejections so one failure never kills the queue
+          console.error(`[drainQueue] Unhandled error for ${file.name}:`, err);
+        })
+        .finally(() => {
+          activeCountRef.current--;
+          setAnalysisDone(prev => prev + 1);
+          // Longer delay on mobile to let GC reclaim memory between files
+          const delay = isMobile ? 1500 : 500;
+          setTimeout(drainQueue, delay);
+        });
     }
     if (activeCountRef.current === 0 && analysisQueueRef.current.length === 0) {
       isProcessingQueueRef.current = false;
