@@ -76,7 +76,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file, onExportDocument }) => 
            <div>
               <h3 className="text-sm font-bold uppercase text-slate-500 mb-2">Key Entities</h3>
               <ul className="bg-white rounded-lg border border-slate-200 shadow-sm divide-y divide-slate-100">
-                 {file.analysis.entities.length > 0 ? file.analysis.entities.map((e, i) => (
+                 {(file.analysis.entities?.length ?? 0) > 0 ? file.analysis.entities!.map((e, i) => (
                    <li key={i} className="px-4 py-2 text-sm text-slate-700">{e}</li>
                  )) : <li className="px-4 py-2 text-sm text-slate-400 italic">None detected</li>}
               </ul>
@@ -84,7 +84,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file, onExportDocument }) => 
            <div>
               <h3 className="text-sm font-bold uppercase text-slate-500 mb-2">Crucial Dates</h3>
               <ul className="bg-white rounded-lg border border-slate-200 shadow-sm divide-y divide-slate-100">
-                 {file.analysis.dates.length > 0 ? file.analysis.dates.map((d, i) => (
+                 {(file.analysis.dates?.length ?? 0) > 0 ? file.analysis.dates!.map((d, i) => (
                    <li key={i} className="px-4 py-2 text-sm text-slate-700 font-mono">{d}</li>
                  )) : <li className="px-4 py-2 text-sm text-slate-400 italic">None detected</li>}
               </ul>
@@ -94,7 +94,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file, onExportDocument }) => 
         <div>
            <h3 className="text-sm font-bold uppercase text-slate-500 mb-2">Relevant Facts & Inconsistencies</h3>
            <ul className="list-disc list-inside bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-2 text-slate-700">
-              {file.analysis.relevantFacts.map((f, i) => <li key={i}>{f}</li>)}
+              {(file.analysis.relevantFacts ?? []).map((f, i) => <li key={i}>{f}</li>)}
            </ul>
         </div>
       </div>
@@ -177,11 +177,11 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file, onExportDocument }) => 
         </div>
 
         {/* Dates & Timeline */}
-        {analysis.dates.length > 0 && (
+        {(analysis.dates?.length ?? 0) > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Extracted Dates &amp; Timeline</h3>
             <div className="space-y-2">
-              {analysis.dates.map((date, i) => (
+              {analysis.dates?.map((date, i) => (
                 <div key={i} className="flex items-center gap-3">
                   <div className="w-2 h-2 rounded-full bg-indigo-400 shrink-0"></div>
                   <span className="font-mono text-sm text-slate-700">{date}</span>
@@ -192,11 +192,11 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file, onExportDocument }) => 
         )}
 
         {/* Key Facts & Inconsistencies */}
-        {analysis.relevantFacts.length > 0 && (
+        {(analysis.relevantFacts?.length ?? 0) > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Key Facts &amp; Inconsistencies</h3>
             <ol className="space-y-3">
-              {analysis.relevantFacts.map((fact, i) => (
+              {analysis.relevantFacts?.map((fact, i) => (
                 <li key={i} className="flex gap-3">
                   <span className="flex-shrink-0 w-6 h-6 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold flex items-center justify-center">{i + 1}</span>
                   <span className="text-sm text-slate-700 leading-relaxed">{fact}</span>
@@ -207,11 +207,11 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file, onExportDocument }) => 
         )}
 
         {/* Entities */}
-        {analysis.entities.length > 0 && (
+        {(analysis.entities?.length ?? 0) > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Entities (People, Organizations, Places)</h3>
             <div className="flex flex-wrap gap-2">
-              {analysis.entities.map((entity, i) => (
+              {analysis.entities?.map((entity, i) => (
                 <span key={i} className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-medium border border-slate-200">
                   {entity}
                 </span>
