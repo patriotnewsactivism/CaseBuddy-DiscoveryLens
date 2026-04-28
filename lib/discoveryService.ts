@@ -63,7 +63,7 @@ export async function listProjects() {
 }
 
 // Document Operations
-export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectId: string) {
+export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectId: string, userId?: string) {
   try {
     const checksum = await sha256FromFile(discoveryFile.file);
     const formData = new FormData();
@@ -93,6 +93,7 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         projectId,
+        userId,
         name: discoveryFile.name,
         mimeType: discoveryFile.mimeType,
         fileType: discoveryFile.type,
@@ -107,7 +108,9 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
     });
 
     if (!docResponse.ok) {
-      throw new Error('Failed to create document record');
+      const errBody = await docResponse.json().catch(() => ({ error: 'Failed to create document record' }));
+      const message = errBody.details ? `${errBody.error}: ${errBody.details}` : errBody.error || 'Failed to create document record';
+      throw new Error(message);
     }
 
     const { document } = await docResponse.json();
@@ -179,4 +182,3 @@ export async function deleteDocument(documentId: string) {
 
   return response.json();
 }
-
