@@ -197,7 +197,7 @@ export default function App() {
       if (currentProject && fileSize < MAX_STORAGE_SIZE) {
         try {
           console.log('[processFileAnalysis] Saving to cloud storage...');
-          const { documentId, storagePath, signedUrl } = await saveDocumentToCloud(file, currentProject.id);
+          const { documentId, storagePath, signedUrl } = await saveDocumentToCloud(file, currentProject.id, user?.id);
           analysisTarget = { ...file, cloudDocumentId: documentId, storagePath, signedUrl };
 
           console.log('[processFileAnalysis] Cloud save complete:', {
