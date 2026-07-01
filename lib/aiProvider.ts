@@ -1,9 +1,10 @@
-export type AIProvider = 'openai' | 'azure' | 'gemini';
+export type AIProvider = 'openai' | 'azure' | 'gemini' | 'cohere';
 
 interface EnvConfig {
   AI_PROVIDER?: string;
   OPENAI_API_KEY?: string;
   GEMINI_API_KEY?: string;
+  COHERE_API_KEY?: string;
   AZURE_OPENAI_ENDPOINT?: string;
   AZURE_OPENAI_KEY?: string;
   AZURE_OPENAI_API_KEY?: string;
@@ -19,6 +20,7 @@ const normalizeProvider = (value?: string): AIProvider | null => {
   if (normalized === 'openai') return 'openai';
   if (normalized === 'gemini') return 'gemini';
   if (normalized === 'azure' || normalized === 'azure-openai') return 'azure';
+  if (normalized === 'cohere') return 'cohere';
   return null;
 };
 
@@ -54,12 +56,13 @@ export function getConfiguredAIProvider(env: EnvConfig = process.env): AIProvide
     }
   }
 
-  // Auto-detect: Azure > OpenAI > Gemini
+  // Auto-detect: Cohere > Azure > OpenAI > Gemini (Cohere: 256K context for discovery docs)
+  if (env.COHERE_API_KEY?.trim()) return 'cohere';
   if (isAzureConfigured(env)) return 'azure';
   if (env.OPENAI_API_KEY?.trim()) return 'openai';
   if (env.GEMINI_API_KEY?.trim()) return 'gemini';
 
   throw new Error(
-    'No AI provider API key configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI credentials.'
+    'No AI provider API key configured. Set COHERE_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI credentials.'
   );
 }

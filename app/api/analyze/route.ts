@@ -4,6 +4,7 @@ import { isAIAuthError, isAIProviderConfigError } from '@/lib/aiError';
 import { analyzeFileServer as analyzeWithAzure } from '@/lib/azureOpenAIService';
 import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
 import { analyzeFileServer as analyzeWithGemini } from '@/lib/geminiServerService';
+import { analyzeDiscoveryDoc, isCohereConfigured } from '@/lib/cohereService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
 import { extractTextWithDocumentIntelligence, isDocumentIntelligenceConfigured } from '@/lib/documentIntelligenceService';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
@@ -173,14 +174,27 @@ export async function POST(request: NextRequest) {
       aiProviderEnv: process.env.AI_PROVIDER,
     });
 
-    const analyzeWithProvider = provider === 'azure'
-      ? analyzeWithAzure
-      : provider === 'gemini'
-        ? analyzeWithGemini
-        : analyzeWithOpenAI;
+    // Cohere: best for 256K legal docs + vision/scanned docs
+    if (isCohereConfigured()) {
+      // provider auto-detected as 'cohere' by getConfiguredAIProvider
+    }
+    const analyzeWithProvider = provider === 'cohere'
+      ? null  // handled separately below via analyzeDiscoveryDoc
+      : provider === 'azure'
+        ? analyzeWithAzure
+        : provider === 'gemini'
+          ? analyzeWithGemini
+          : analyzeWithOpenAI;
 
     console.log(`[analyze] Calling analyzeFileServer (${provider})...`);
-    const analysis = await analyzeWithProvider({
+    // Route to Cohere for document/OCR analysis when configured
+    if (provider === 'cohere') {
+      const systemPrompt = `You are an expert legal discovery analyst. Analyze the following document text with the precision required by trial attorneys. Extract key facts, entities, timeline events, privilege flags, hearsay issues, and overall case impact. Return structured JSON.`;
+      const cohereResult = await analyzeDiscoveryDoc(systemPrompt, extractedText || '');
+      return NextResponse.json({ analysis: cohereResult.text, provider: 'cohere', model: cohereResult.model });
+    }
+
+    const analysis = await analyzeWithProvider?.({
       mimeType: detectedMime || mimeType,
       fileName: fileName || 'Unknown',
       batesNumber: batesNumber || 'UNKNOWN',
