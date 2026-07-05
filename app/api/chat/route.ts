@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
 import { isAIAuthError, isAIProviderConfigError } from '@/lib/aiError';
-import { chatWithDiscoveryServer as chatWithAzure } from '@/lib/azureOpenAIService';
 import { chatWithDiscoveryServer as chatWithOpenAI } from '@/lib/openAIService';
 import { chatWithDiscoveryServer as chatWithGemini } from '@/lib/geminiServerService';
 
@@ -23,9 +22,11 @@ export async function POST(request: NextRequest) {
     const provider = getConfiguredAIProvider();
     console.log('[chat] Provider selection:', { provider });
 
-    const chatWithProvider = provider === 'azure'
-      ? chatWithAzure
-      : provider === 'gemini'
+    // Cohere is analysis-only; chat routes to Gemini (free) when available,
+    // otherwise OpenAI
+    const chatWithProvider = provider === 'openai'
+      ? chatWithOpenAI
+      : process.env.GEMINI_API_KEY
         ? chatWithGemini
         : chatWithOpenAI;
 

@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredAIProvider } from '@/lib/aiProvider';
 import { isAIAuthError, isAIProviderConfigError } from '@/lib/aiError';
-import { analyzeFileServer as analyzeWithAzure } from '@/lib/azureOpenAIService';
 import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
 import { analyzeFileServer as analyzeWithGemini } from '@/lib/geminiServerService';
-import { analyzeDiscoveryDoc, isCohereConfigured } from '@/lib/cohereService';
+import { analyzeDiscoveryDoc } from '@/lib/cohereService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
-import { extractTextWithDocumentIntelligence, isDocumentIntelligenceConfigured } from '@/lib/documentIntelligenceService';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 
 async function downloadStorageObject(storagePath: string, signedUrl?: string) {
@@ -95,54 +93,18 @@ export async function POST(request: NextRequest) {
     if (!cleanedText && payloadBase64) {
       console.log('[analyze] Extracting text from base64 data...');
 
-      // Try Document Intelligence first for PDFs and images (best accuracy)
-      if (isDocumentIntelligenceConfigured() && (mimeType?.includes('pdf') || mimeType?.includes('image/'))) {
-        try {
-          console.log('[analyze] Using Document Intelligence for OCR...');
-          const docResult = await extractTextWithDocumentIntelligence(
-            payloadBase64,
-            mimeType || 'application/octet-stream',
-            fileName,
-            batesNumber
-          );
-          cleanedText = docResult.text;
-          detectedMime = mimeType;
-          metadata = {
-            mimeType: mimeType || 'application/pdf',
-            fileName,
-            wordCount: cleanedText ? cleanedText.split(/\s+/).length : 0,
-            sourceOCR: 'document-intelligence',
-            pages: docResult.pages,
-            confidence: docResult.confidence,
-            tableCount: docResult.tables?.length || 0,
-          };
-          chunks = chunkText(cleanedText);
-          console.log('[analyze] Document Intelligence extraction complete:', {
-            textLength: cleanedText?.length || 0,
-            chunkCount: chunks.length,
-            confidence: metadata.confidence,
-          });
-        } catch (docIntelError: any) {
-          console.warn('[analyze] Document Intelligence failed, falling back to generic extraction:', docIntelError?.message);
-          const extraction = await extractTextFromBase64(payloadBase64, mimeType, fileName);
-          cleanedText = extraction.text;
-          detectedMime = extraction.mimeType;
-          metadata = extraction.metadata;
-          chunks = extraction.chunks;
-        }
-      } else {
-        // Fall back to generic text extraction
-        const extraction = await extractTextFromBase64(payloadBase64, mimeType, fileName);
-        cleanedText = extraction.text;
-        detectedMime = extraction.mimeType;
-        metadata = extraction.metadata;
-        chunks = extraction.chunks;
-        console.log('[analyze] Generic extraction complete:', {
-          textLength: cleanedText?.length || 0,
-          chunkCount: chunks.length,
-          detectedMime,
-        });
-      }
+      // Generic text extraction; scanned PDFs/images fall through to the
+      // multimodal AI providers (Gemini reads the base64 payload directly)
+      const extraction = await extractTextFromBase64(payloadBase64, mimeType, fileName);
+      cleanedText = extraction.text;
+      detectedMime = extraction.mimeType;
+      metadata = extraction.metadata;
+      chunks = extraction.chunks;
+      console.log('[analyze] Generic extraction complete:', {
+        textLength: cleanedText?.length || 0,
+        chunkCount: chunks.length,
+        detectedMime,
+      });
     } else if (cleanedText) {
       chunks = chunkText(cleanedText);
       metadata = {
@@ -167,31 +129,46 @@ export async function POST(request: NextRequest) {
 
     console.log('[analyze] Provider selection:', {
       provider,
-      hasAzureEndpoint: !!process.env.AZURE_OPENAI_ENDPOINT,
-      hasAzureKey: !!process.env.AZURE_OPENAI_KEY,
+      hasCohereKey: !!process.env.COHERE_API_KEY,
       hasOpenAIKey: !!process.env.OPENAI_API_KEY,
       hasGeminiKey: !!process.env.GEMINI_API_KEY,
       aiProviderEnv: process.env.AI_PROVIDER,
     });
 
-    // Cohere: best for 256K legal docs + vision/scanned docs
-    if (isCohereConfigured()) {
-      // provider auto-detected as 'cohere' by getConfiguredAIProvider
-    }
     const analyzeWithProvider = provider === 'cohere'
       ? null  // handled separately below via analyzeDiscoveryDoc
-      : provider === 'azure'
-        ? analyzeWithAzure
-        : provider === 'gemini'
-          ? analyzeWithGemini
-          : analyzeWithOpenAI;
+      : provider === 'gemini'
+        ? analyzeWithGemini
+        : analyzeWithOpenAI;
 
     console.log(`[analyze] Calling analyzeFileServer (${provider})...`);
-    // Route to Cohere for document/OCR analysis when configured
-    if (provider === 'cohere') {
+    // Route to Cohere for document/OCR analysis when configured (256K context)
+    if (provider === 'cohere' && (cleanedText || extractedText)) {
       const systemPrompt = `You are an expert legal discovery analyst. Analyze the following document text with the precision required by trial attorneys. Extract key facts, entities, timeline events, privilege flags, hearsay issues, and overall case impact. Return structured JSON.`;
-      const cohereResult = await analyzeDiscoveryDoc(systemPrompt, extractedText || '');
+      const cohereResult = await analyzeDiscoveryDoc(systemPrompt, cleanedText || extractedText || '');
       return NextResponse.json({ analysis: cohereResult.text, provider: 'cohere', model: cohereResult.model });
+    }
+    if (provider === 'cohere') {
+      // No text available (e.g. scanned image) — Cohere is text-only, so use
+      // the multimodal Gemini path if a key exists
+      if (process.env.GEMINI_API_KEY) {
+        const analysis = await analyzeWithGemini({
+          mimeType: detectedMime || mimeType,
+          fileName: fileName || 'Unknown',
+          batesNumber: batesNumber || 'UNKNOWN',
+          fileType: fileType || 'DOCUMENT',
+          casePerspective,
+          textContent: cleanedText,
+          textChunks: chunks,
+          metadata,
+          base64Data: payloadBase64,
+        });
+        return NextResponse.json(analysis);
+      }
+      return NextResponse.json(
+        { error: 'No text could be extracted and no multimodal provider is configured.' },
+        { status: 422 }
+      );
     }
 
     const analysis = await analyzeWithProvider?.({

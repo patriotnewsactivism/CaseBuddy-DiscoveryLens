@@ -1,7 +1,17 @@
 import { getSupabaseAdmin } from './supabaseClient';
 import { extractTextFromBase64, type ExtractionResult } from './extractionService';
-import { analyzeFileServer } from './azureOpenAIService';
+import { getConfiguredAIProvider } from './aiProvider';
+import { analyzeFileServer as analyzeWithGemini } from './geminiServerService';
+import { analyzeFileServer as analyzeWithOpenAI } from './openAIService';
 import { LRUCache } from './cache';
+
+// Free-first provider dispatch (Azure removed): Gemini free tier when
+// available, otherwise OpenAI. Cohere is handled in the analyze API route.
+const analyzeFileServer: typeof analyzeWithGemini = (input) => {
+  const provider = getConfiguredAIProvider();
+  if (provider === 'openai') return analyzeWithOpenAI(input);
+  return analyzeWithGemini(input);
+};
 import type { Database, Json } from './database.types';
 
 type JobQueueRow = Database['public']['Tables']['job_queue']['Row'];
