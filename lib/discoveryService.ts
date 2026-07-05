@@ -137,10 +137,9 @@ export async function updateDocumentAnalysis(documentId: string, analysis: any) 
       status: 'complete',
       // Dedicated columns for easier querying from CaseBuddy and other consumers
       summary: analysis?.summary ?? null,
-      keyFacts: analysis?.relevantFacts?.join('\n') ?? null,
+      keyFacts: analysis?.relevantFacts ?? null,
       extractedText: analysis?.transcription ?? null,
       evidenceType: analysis?.evidenceType ?? null,
-      sentiment: analysis?.sentiment ?? null,
     }),
   });
 
