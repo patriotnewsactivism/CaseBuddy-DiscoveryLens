@@ -3,3 +3,9 @@
 # Never commit real env files
 .env
 .env.local
+
+# Dependencies and build artifacts
+node_modules/
+.next/
+tsconfig.tsbuildinfo
+*.log
