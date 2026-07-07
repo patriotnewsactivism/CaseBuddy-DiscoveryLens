@@ -1,10 +1,14 @@
 import { GoogleGenAI } from '@google/genai';
-import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
+import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, SYSTEM_INSTRUCTION_INSIGHTS, EVIDENCE_CATEGORIES } from './constants';
 import { analysisCache, LRUCache } from './cache';
+import { sanitizeHighlights, buildInsightsPrompt, type CaseHighlight, type InsightsFileContext } from './insightsTypes';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.0-flash';
-const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-2.0-flash';
+// gemini-2.5-flash is the model version proven working in production across
+// CaseBuddy (lexsim) and case-companion's OCR fallback path. Keep DiscoveryLens
+// in sync with that rather than the older 2.0 line. Override via env if needed.
+const GEMINI_ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.5-flash';
+const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-2.5-flash';
 
 if (!GEMINI_API_KEY) {
   console.warn('[geminiServerService] GEMINI_API_KEY not set; Gemini provider will be unavailable.');
@@ -128,7 +132,7 @@ export async function analyzeFileServer({
 
   const evidenceCategoriesList = EVIDENCE_CATEGORIES.join(', ');
 
-  const systemInstruction = `${SYSTEM_INSTRUCTION_ANALYZER}\n\nValid evidence types: ${evidenceCategoriesList}\n\nRespond with a JSON object containing: summary (string), evidenceType (one of the valid types), entities (string array), dates (string array), relevantFacts (string array), sentiment (one of: Hostile, Cooperative, Neutral).`;
+  const systemInstruction = `${SYSTEM_INSTRUCTION_ANALYZER}\n\nValid evidence types: ${evidenceCategoriesList}\n\nRespond with a JSON object containing: summary (string), evidenceType (one of the valid types), entities (string array), dates (string array), timelineEvents (array of {date: string, description: string} pairs - one per distinct event, see instructions above), relevantFacts (string array), sentiment (one of: Hostile, Cooperative, Neutral).`;
 
   const parts: any[] = [{ text: contentParts.join('\n\n') }];
 
@@ -225,4 +229,36 @@ export async function chatWithDiscoveryServer(
 
 export function isGeminiConfigured(): boolean {
   return Boolean(GEMINI_API_KEY);
+}
+
+export async function generateInsightsServer(
+  files: InsightsFileContext[],
+  casePerspective?: string
+): Promise<CaseHighlight[]> {
+  const filesHash = LRUCache.hashContent(JSON.stringify(files.map(f => [f.batesNumber, f.summary])));
+  const cacheKey = LRUCache.createKey('insights', filesHash, casePerspective || 'default');
+
+  if (ENABLE_CACHING) {
+    const cached = await analysisCache.getCachedAnalysis<CaseHighlight[]>(cacheKey);
+    if (cached !== null) return cached;
+  }
+
+  const prompt = buildInsightsPrompt(files, casePerspective);
+  const client = getGenAIClient();
+  const response = await client.models.generateContent({
+    model: GEMINI_ANALYSIS_MODEL,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: {
+      systemInstruction: SYSTEM_INSTRUCTION_INSIGHTS,
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const highlights = sanitizeHighlights(JSON.parse(response.text || '{}'));
+
+  if (ENABLE_CACHING) {
+    analysisCache.cacheAnalysis(cacheKey, highlights, CACHE_TTL_MS);
+  }
+
+  return highlights;
 }

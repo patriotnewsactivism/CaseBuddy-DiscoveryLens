@@ -276,6 +276,13 @@ export type Database = {
         };
         Returns: void;
       };
+      reserve_bates_numbers: {
+        Args: {
+          p_project_id: string;
+          p_count: number;
+        };
+        Returns: number;
+      };
     };
     Enums: {
       case_status: 'active' | 'discovery' | 'pending' | 'review' | 'closed' | 'archived';

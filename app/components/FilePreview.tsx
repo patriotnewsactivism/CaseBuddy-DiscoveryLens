@@ -12,21 +12,36 @@ interface FilePreviewProps {
 const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
   const [activeTab, setActiveTab] = useState<'preview' | 'analysis' | 'transcription'>('preview');
 
+  const renderCloudOnlyNotice = () => (
+    <div className="flex flex-col justify-center items-center h-full bg-slate-50 p-8 text-center">
+      <p className="text-slate-500 text-sm max-w-xs">
+        This file was restored from a saved case without a live preview link. Re-open the case document list to refresh its signed URL, or check the Analysis/Transcription tabs.
+      </p>
+    </div>
+  );
+
   const renderPreviewContent = () => {
     switch (file.type) {
-      case FileType.IMAGE:
+      case FileType.IMAGE: {
+        const src = file.previewUrl || file.signedUrl;
+        if (!src) return renderCloudOnlyNotice();
         return (
           <div className="flex justify-center items-center h-full bg-slate-900">
-            <img src={file.previewUrl} alt={file.name} className="max-h-full max-w-full object-contain" />
+            <img src={src} alt={file.name} className="max-h-full max-w-full object-contain" />
           </div>
         );
-      case FileType.VIDEO:
+      }
+      case FileType.VIDEO: {
+        const src = file.previewUrl || file.signedUrl;
+        if (!src) return renderCloudOnlyNotice();
         return (
           <div className="flex justify-center items-center h-full bg-slate-900">
-            <video src={file.previewUrl} controls className="max-h-full max-w-full" />
+            <video src={src} controls className="max-h-full max-w-full" />
           </div>
         );
-      case FileType.AUDIO:
+      }
+      case FileType.AUDIO: {
+        const src = file.previewUrl || file.signedUrl;
         return (
           <div className="flex flex-col justify-center items-center h-full bg-slate-100 p-8">
             <div className="w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center mb-6 text-indigo-600">
@@ -34,15 +49,18 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
               </svg>
             </div>
-            <audio src={file.previewUrl} controls className="w-full max-w-md" />
+            {src ? <audio src={src} controls className="w-full max-w-md" /> : <p className="text-slate-400 text-sm">Preview unavailable - see Transcription tab.</p>}
             <p className="mt-4 text-slate-500 text-sm font-mono">{file.name}</p>
           </div>
         );
+      }
       case FileType.DOCUMENT:
       default:
         if (file.mimeType === 'application/pdf') {
+             const src = file.previewUrl || file.signedUrl;
+             if (!src) return renderCloudOnlyNotice();
              return (
-                <iframe src={file.previewUrl} className="w-full h-full" title="PDF Preview"></iframe>
+                <iframe src={src} className="w-full h-full" title="PDF Preview"></iframe>
              );
         }
         return (
@@ -137,7 +155,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file }) => {
                 <div className="flex items-center space-x-2 text-xs text-slate-500">
                    <span className="uppercase">{file.type}</span>
                    <span>•</span>
-                   <span>{(file.file.size / 1024 / 1024).toFixed(2)} MB</span>
+                   <span>{((file.file?.size ?? file.sizeBytes ?? 0) / 1024 / 1024).toFixed(2)} MB</span>
                    {file.analysis?.evidenceType && (
                       <>
                         <span>•</span>

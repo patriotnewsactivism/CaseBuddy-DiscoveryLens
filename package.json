@@ -18,6 +18,7 @@
     "@supabase/supabase-js": "^2.88.0",
     "@vercel/analytics": "^2.0.1",
     "assemblyai": "^4.22.1",
+    "chrono-node": "^2.7.7",
     "file-type": "^21.1.1",
     "jszip": "^3.10.1",
     "mammoth": "^1.11.0",

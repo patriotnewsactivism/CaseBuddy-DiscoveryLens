@@ -1,8 +1,24 @@
 import { getSupabaseAdmin } from './supabaseClient';
 import { extractTextFromBase64, type ExtractionResult } from './extractionService';
-import { analyzeFileServer } from './azureOpenAIService';
+import { getConfiguredAIProvider } from './aiProvider';
+import { analyzeFileServer as analyzeWithAzure } from './azureOpenAIService';
+import { analyzeFileServer as analyzeWithOpenAI } from './openAIService';
+import { analyzeFileServer as analyzeWithGemini } from './geminiServerService';
 import { LRUCache } from './cache';
 import type { Database, Json } from './database.types';
+
+// Dispatch to whichever provider is configured (AI_PROVIDER env, or
+// auto-detected azure > openai > gemini) - keeps the background job worker
+// in sync with the same provider selection used by app/api/analyze/route.ts.
+// Previously this was hardcoded to Azure OpenAI regardless of configuration,
+// which meant queued "analyze" jobs would fail outright whenever Azure OpenAI
+// wasn't configured even if Gemini or OpenAI were.
+async function analyzeFileServer(args: Parameters<typeof analyzeWithGemini>[0]) {
+  const provider = getConfiguredAIProvider();
+  if (provider === 'azure') return analyzeWithAzure(args);
+  if (provider === 'gemini') return analyzeWithGemini(args);
+  return analyzeWithOpenAI(args);
+}
 
 type JobQueueRow = Database['public']['Tables']['job_queue']['Row'];
 type JobType = JobQueueRow['job_type'];
@@ -347,23 +363,22 @@ class JobWorker {
 
     const buffer = Buffer.from(await fileData.arrayBuffer());
 
-    this.onProgress?.(job.id, 20, 'Processing audio');
+    this.onProgress?.(job.id, 20, 'Extracting audio (ffmpeg) and transcribing');
 
-    const { transcribeWithAssembly } = await import('./assemblyTranscriber');
-    const transcription = await transcribeWithAssembly({
-      input: buffer,
+    const { transcribeMedia } = await import('./transcriptionProvider');
+    const result = await transcribeMedia({
+      buffer,
       mimeType: document.mime_type || 'audio/mpeg',
       fileName: document.name,
       batesNumber: document.bates_formatted || 'UNKNOWN',
-      isBase64: false
     });
 
-    this.onProgress?.(job.id, 80, 'Saving transcription');
+    this.onProgress?.(job.id, 80, `Saving transcription (${result.provider})`);
 
     const { error: updateError } = await supabase
       .from('documents')
       .update({
-        extracted_text: transcription,
+        extracted_text: result.text,
         status: 'complete',
         updated_at: new Date().toISOString(),
       })

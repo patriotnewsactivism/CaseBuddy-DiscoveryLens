@@ -1,4 +1,4 @@
-import { CasePerspective, DiscoveryFile } from './types';
+import { CasePerspective, CaseHighlight, DiscoveryFile, FileType } from './types';
 
 const extractClientText = async (file: File, mimeType: string): Promise<string | undefined> => {
   const textualMime = mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml') || mimeType.includes('html');
@@ -74,11 +74,72 @@ export const buildAnalyzePayload = async (
   };
 };
 
+/**
+ * Transcribe an audio/video discovery file via the ffmpeg + Deepgram
+ * (fallback: AssemblyAI) pipeline before analysis. Returns null on any
+ * failure so callers can gracefully fall back to sending the raw file to
+ * the multimodal LLM instead - transcription is a quality/cost/speed
+ * optimization, not a hard requirement for analysis to proceed.
+ */
+export const transcribeMediaFile = async (
+  discoveryFile: DiscoveryFile
+): Promise<{ transcription: string; provider?: string } | null> => {
+  try {
+    const formData = new FormData();
+    if (discoveryFile.file) {
+      formData.append('file', discoveryFile.file, discoveryFile.name);
+    } else if (discoveryFile.signedUrl) {
+      // Cloud-hydrated file with no live browser File handle (e.g. resumed
+      // from a previous session) - let the server pull it from storage.
+      formData.append('mediaUrl', discoveryFile.signedUrl);
+    } else {
+      return null;
+    }
+    formData.append('fileName', discoveryFile.name);
+    formData.append('batesNumber', discoveryFile.batesNumber.formatted);
+
+    const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.warn(
+        `[transcribeMediaFile] Transcription failed for ${discoveryFile.name} (${discoveryFile.batesNumber.formatted}), falling back to multimodal analysis:`,
+        errorData?.details || errorData?.error || response.statusText
+      );
+      return null;
+    }
+
+    const data = await response.json();
+    if (!data?.transcription) return null;
+    return { transcription: data.transcription as string, provider: data.provider as string | undefined };
+  } catch (error) {
+    console.warn(`[transcribeMediaFile] Transcription request errored for ${discoveryFile.name}:`, error);
+    return null;
+  }
+};
+
 export const analyzeFile = async (
   discoveryFile: DiscoveryFile,
   casePerspective: CasePerspective
 ): Promise<any> => {
+  let transcriptionResult: { transcription: string; provider?: string } | null = null;
+
+  // For audio/video, run the dedicated ffmpeg + Deepgram/AssemblyAI pipeline
+  // first. A verbatim ASR transcript is faster, cheaper, and more reliable
+  // for legal citation purposes than asking the LLM to transcribe raw media
+  // itself, and it lets the analysis step run on plain text like any
+  // document instead of a large multimodal payload.
+  if (discoveryFile.type === FileType.AUDIO || discoveryFile.type === FileType.VIDEO) {
+    transcriptionResult = await transcribeMediaFile(discoveryFile);
+  }
+
   const payload = await buildAnalyzePayload(discoveryFile, casePerspective);
+
+  if (transcriptionResult?.transcription) {
+    payload.extractedText = transcriptionResult.transcription;
+    // Skip shipping the full media payload once we already have an accurate
+    // verbatim transcript - keeps the /api/analyze request small and fast.
+    payload.base64Data = undefined;
+  }
 
   const response = await fetch('/api/analyze', {
     method: 'POST',
@@ -92,7 +153,54 @@ export const analyzeFile = async (
     throw new Error(message);
   }
 
-  return response.json();
+  const analysis = await response.json();
+
+  if (transcriptionResult?.transcription) {
+    // The ASR transcript is authoritative verbatim text - prefer it over
+    // whatever the analysis model produced (or omitted) for the
+    // `transcription` field.
+    analysis.transcription = transcriptionResult.transcription;
+  }
+
+  return analysis;
+};
+
+/**
+ * Synthesize the most case-critical facts across every analyzed document -
+ * admissions, contradictions, smoking guns, credibility issues - each cited
+ * back to its source Bates number(s). Requires at least a few analyzed files
+ * to be worth running.
+ */
+export const generateCaseHighlights = async (
+  allFiles: DiscoveryFile[],
+  casePerspective: CasePerspective
+): Promise<CaseHighlight[]> => {
+  const files = allFiles
+    .filter(f => f.analysis)
+    .map(f => ({
+      batesNumber: f.batesNumber.formatted,
+      name: f.name,
+      evidenceType: f.analysis!.evidenceType,
+      summary: f.analysis!.summary,
+      relevantFacts: f.analysis!.relevantFacts,
+      sentiment: f.analysis!.sentiment,
+    }));
+
+  if (files.length === 0) return [];
+
+  const response = await fetch('/api/insights', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files, casePerspective }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(errorData.details ? `${errorData.error}: ${errorData.details}` : errorData.error || 'Failed to generate case highlights');
+  }
+
+  const data = await response.json();
+  return (data.highlights || []) as CaseHighlight[];
 };
 
 export const chatWithDiscovery = async (

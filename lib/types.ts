@@ -12,14 +12,28 @@ export interface BatesNumber {
   formatted: string; // e.g., "DEF-0001"
 }
 
+export interface TimelineEvent {
+  date: string; // Raw date/time text as it appeared in the source (any format)
+  description: string; // What happened on that date, in this document
+}
+
 export interface AnalysisData {
   summary: string;
   evidenceType: string; // e.g., "Body Cam", "Deposition", "Email", "Contract"
   entities: string[]; // People, Places, Organizations
   dates: string[];
+  timelineEvents?: TimelineEvent[]; // Structured (date, what happened) pairs for the chronology view
   relevantFacts: string[];
   transcription?: string; // For A/V
   sentiment?: 'Hostile' | 'Cooperative' | 'Neutral';
+}
+
+export interface CaseHighlight {
+  category: 'Admission' | 'Contradiction' | 'Key Fact' | 'Credibility Issue' | 'Smoking Gun';
+  severity: 'Critical' | 'High' | 'Medium';
+  headline: string; // One-line summary of the highlight
+  explanation: string; // Why this matters to the case
+  batesReferences: string[]; // Bates-formatted citations, e.g. ["DEF-0001", "DEF-0007"]
 }
 
 export enum CasePerspective {
@@ -30,11 +44,15 @@ export enum CasePerspective {
 
 export interface DiscoveryFile {
   id: string;
-  file: File;
+  // Optional: a resumed/cloud-hydrated document (loaded from a previous
+  // session via /api/projects/[id]) has no live browser File handle until
+  // the user re-opens it - only storagePath/signedUrl are available then.
+  file?: File;
+  sizeBytes?: number; // Fallback size when `file` isn't available locally
   name: string;
   type: FileType;
   batesNumber: BatesNumber;
-  previewUrl: string; // Blob URL
+  previewUrl?: string; // Blob URL (fresh uploads) - falls back to signedUrl for resumed files
   isProcessing: boolean;
   analysis: AnalysisData | null;
   base64Data?: string; // Cache for API calls
@@ -85,6 +103,7 @@ export enum ViewMode {
   DASHBOARD = 'DASHBOARD',
   EVIDENCE_VIEWER = 'EVIDENCE_VIEWER',
   TIMELINE = 'TIMELINE',
+  HIGHLIGHTS = 'HIGHLIGHTS',
   CLI = 'CLI'
 }
 

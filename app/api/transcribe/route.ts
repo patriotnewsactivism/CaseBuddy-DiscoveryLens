@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { transcribeWithAssembly } from '@/lib/assemblyTranscriber';
+import { transcribeMedia } from '@/lib/transcriptionProvider';
 import { downloadMediaBuffer, getMaxMediaBytes } from '@/lib/mediaTranscoder';
 
 export const maxDuration = 300; // 5 minutes for transcription
@@ -61,15 +61,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const transcription = await transcribeWithAssembly({
-      input: buffer,
-      mimeType,
-      fileName,
-      batesNumber,
-      isBase64: false
-    });
+    const result = await transcribeMedia({ buffer, mimeType, fileName, batesNumber });
 
-    return NextResponse.json({ transcription });
+    return NextResponse.json({
+      transcription: result.text,
+      provider: result.provider,
+      confidence: result.confidence,
+      speakerCount: result.speakerCount,
+    });
   } catch (error: any) {
     console.error('Transcription API error:', error);
     const status = error?.message?.includes('exceeds maximum size') ? 413 : 500;

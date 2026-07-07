@@ -51,6 +51,28 @@ export async function updateProject(projectId: string, updates: { name?: string;
   return response.json();
 }
 
+/**
+ * Atomically reserve a contiguous block of Bates numbers for a project
+ * before assigning them to a batch of incoming files. Prevents the
+ * race condition (and reload-resets-to-1 bug) that comes from tracking the
+ * counter only in client-side React state.
+ */
+export async function reserveBatesNumbers(projectId: string, count: number): Promise<number> {
+  const response = await fetch(`/api/projects/${projectId}/reserve-bates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ count }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to reserve Bates numbers' }));
+    throw new Error(error.details ? `${error.error}: ${error.details}` : error.error || 'Failed to reserve Bates numbers');
+  }
+
+  const { startNumber } = await response.json();
+  return startNumber as number;
+}
+
 export async function listProjects() {
   const response = await fetch('/api/projects');
 
@@ -64,10 +86,15 @@ export async function listProjects() {
 
 // Document Operations
 export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectId: string) {
+  if (!discoveryFile.file) {
+    throw new Error(`Cannot save ${discoveryFile.name} to cloud storage: no local file data available (already saved, or a resumed cloud-only entry).`);
+  }
+  const localFile = discoveryFile.file;
+
   try {
-    const checksum = await sha256FromFile(discoveryFile.file);
+    const checksum = await sha256FromFile(localFile);
     const formData = new FormData();
-    formData.append('file', discoveryFile.file);
+    formData.append('file', localFile);
     formData.append('fileName', discoveryFile.name);
     formData.append('mimeType', discoveryFile.mimeType);
     formData.append('projectId', projectId);
@@ -96,7 +123,7 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
         name: discoveryFile.name,
         mimeType: discoveryFile.mimeType,
         fileType: discoveryFile.type,
-        fileSize: discoveryFile.file.size,
+        fileSize: localFile.size,
         batesPrefix: discoveryFile.batesNumber.prefix,
         batesNumber: discoveryFile.batesNumber.number,
         batesFormatted: discoveryFile.batesNumber.formatted,

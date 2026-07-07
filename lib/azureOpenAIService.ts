@@ -1,6 +1,7 @@
 import { AzureOpenAI } from 'openai';
-import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, EVIDENCE_CATEGORIES } from './constants';
+import { SYSTEM_INSTRUCTION_ANALYZER, SYSTEM_INSTRUCTION_CHAT, SYSTEM_INSTRUCTION_INSIGHTS, EVIDENCE_CATEGORIES } from './constants';
 import { analysisCache, LRUCache } from './cache';
+import { sanitizeHighlights, buildInsightsPrompt, type CaseHighlight, type InsightsFileContext } from './insightsTypes';
 
 const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT?.replace(/\/?$/, '');
 const AZURE_OPENAI_KEY = process.env.AZURE_OPENAI_KEY || process.env.AZURE_OPENAI_API_KEY;
@@ -193,7 +194,7 @@ export async function analyzeFileServer({
   const messages: any[] = [
     {
       role: 'system',
-      content: `${SYSTEM_INSTRUCTION_ANALYZER}\n\nValid evidence types: ${evidenceCategoriesList}\n\nRespond with a JSON object containing: summary (string), evidenceType (one of the valid types), entities (string array), dates (string array), relevantFacts (string array), sentiment (one of: Hostile, Cooperative, Neutral).`,
+      content: `${SYSTEM_INSTRUCTION_ANALYZER}\n\nValid evidence types: ${evidenceCategoriesList}\n\nRespond with a JSON object containing: summary (string), evidenceType (one of the valid types), entities (string array), dates (string array), timelineEvents (array of {date: string, description: string} pairs - one per distinct event, see instructions above), relevantFacts (string array), sentiment (one of: Hostile, Cooperative, Neutral).`,
     },
     {
       role: 'user',
@@ -320,4 +321,38 @@ export async function chatWithDiscoveryServer(
 
 export function isAzureOpenAIConfigured(): boolean {
   return Boolean(AZURE_OPENAI_ENDPOINT && AZURE_OPENAI_KEY && AZURE_DEPLOYMENT_ANALYSIS);
+}
+
+export async function generateInsightsServer(
+  files: InsightsFileContext[],
+  casePerspective?: string
+): Promise<CaseHighlight[]> {
+  const filesHash = LRUCache.hashContent(JSON.stringify(files.map(f => [f.batesNumber, f.summary])));
+  const cacheKey = LRUCache.createKey('insights', filesHash, casePerspective || 'default');
+
+  if (ENABLE_CACHING) {
+    const cached = await analysisCache.getCachedAnalysis<CaseHighlight[]>(cacheKey);
+    if (cached !== null) return cached;
+  }
+
+  const prompt = buildInsightsPrompt(files, casePerspective);
+  const messages: any[] = [
+    { role: 'system', content: SYSTEM_INSTRUCTION_INSIGHTS },
+    { role: 'user', content: prompt },
+  ];
+
+  const response = await retryWithBackoff(() => getAzureClient(ANALYSIS_MODEL).chat.completions.create({
+    model: ANALYSIS_MODEL,
+    messages,
+    max_tokens: 4096,
+    response_format: { type: 'json_object' },
+  }), 5, 3000);
+
+  const highlights = sanitizeHighlights(JSON.parse(response.choices[0]?.message?.content || '{}'));
+
+  if (ENABLE_CACHING) {
+    analysisCache.cacheAnalysis(cacheKey, highlights, CACHE_TTL_MS);
+  }
+
+  return highlights;
 }

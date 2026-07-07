@@ -40,9 +40,35 @@ export async function GET(
 
     if (docsError) throw docsError;
 
+    // Attach fresh signed URLs so resumed sessions can preview cloud-stored
+    // files without the client needing to re-derive storage paths itself.
+    const storagePaths = (documents || [])
+      .map(doc => doc.storage_path)
+      .filter((path): path is string => Boolean(path));
+
+    let signedUrlByPath = new Map<string, string>();
+    if (storagePaths.length > 0) {
+      const { data: signedUrls, error: signError } = await supabase.storage
+        .from('discovery-files')
+        .createSignedUrls(storagePaths, 3600);
+
+      if (!signError && signedUrls) {
+        signedUrlByPath = new Map(
+          signedUrls
+            .filter(entry => entry.signedUrl && !entry.error)
+            .map(entry => [entry.path as string, entry.signedUrl as string])
+        );
+      }
+    }
+
+    const documentsWithUrls = (documents || []).map(doc => ({
+      ...doc,
+      signed_url: doc.storage_path ? signedUrlByPath.get(doc.storage_path) || null : null,
+    }));
+
     return NextResponse.json({
       project,
-      documents: documents || [],
+      documents: documentsWithUrls,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

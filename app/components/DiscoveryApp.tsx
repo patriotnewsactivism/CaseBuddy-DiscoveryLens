@@ -2,14 +2,24 @@
 
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor, Project, CasePerspective } from '@/lib/types';
+import { lookup as mimeLookup } from 'mime-types';
+import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor, Project, CasePerspective, CloudDocument } from '@/lib/types';
 import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
 import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
-import { createProject, saveDocumentToCloud, updateDocumentAnalysis, updateDocumentStatus } from '@/lib/discoveryService';
+import {
+  createProject,
+  saveDocumentToCloud,
+  updateDocumentAnalysis,
+  updateDocumentStatus,
+  listProjects,
+  getProject,
+  reserveBatesNumbers,
+} from '@/lib/discoveryService';
 import FilePreview from '@/app/components/FilePreview';
 import ChatInterface from '@/app/components/ChatInterface';
 import BatesBadge from '@/app/components/BatesBadge';
 import Timeline from '@/app/components/Timeline';
+import CaseHighlights from '@/app/components/CaseHighlights';
 import TerminalInterface from '@/app/components/TerminalInterface';
 
 // --- Helper Functions ---
@@ -23,6 +33,131 @@ const getFileType = (file: File): FileType => {
 const formatBates = (num: number): string => {
   const padded = num.toString().padStart(4, '0');
   return `${BATES_PREFIX_DEFAULT}-${padded}`;
+};
+
+/**
+ * Rehydrate a DiscoveryFile from a previously-saved cloud document row (used
+ * when resuming a case across sessions/reloads). There is no live browser
+ * File handle for these - previews fall back to the signed URL, and the
+ * upload/save flows treat entries without `.file` as already persisted.
+ */
+const mapCloudDocumentToDiscoveryFile = (doc: CloudDocument & { signed_url?: string | null }): DiscoveryFile => {
+  const batesNumber = Number(doc.bates_number) || 0;
+  return {
+    id: doc.id,
+    name: doc.name,
+    type: (doc.file_type as FileType) || FileType.DOCUMENT,
+    mimeType: doc.mime_type || 'application/octet-stream',
+    sizeBytes: doc.file_size ?? undefined,
+    batesNumber: {
+      prefix: doc.bates_prefix || BATES_PREFIX_DEFAULT,
+      number: batesNumber,
+      formatted: doc.bates_formatted,
+    },
+    isProcessing: doc.status === 'processing',
+    analysis: (doc.analysis as AnalysisData) || null,
+    analysisError: doc.status === 'failed' ? doc.error_message || 'Analysis failed' : null,
+    tags: doc.tags || [],
+    customFields: doc.custom_fields || {},
+    cloudDocumentId: doc.id,
+    storagePath: doc.storage_path,
+    signedUrl: doc.signed_url || undefined,
+  };
+};
+
+// --- Archive (zip) explosion ---
+// Zips get unpacked into their constituent files client-side so every
+// document, photo, recording, or video inside becomes its own Bates-numbered
+// discovery item and runs through the full extraction/transcription/analysis
+// pipeline - rather than the shallow "concatenate text-like entries" fallback
+// that lib/extractionService.ts uses server-side for a zip that reaches it whole.
+const ARCHIVE_JUNK_PATTERNS = [/(^|\/)__MACOSX\//, /(^|\/)\.DS_Store$/, /(^|\/)Thumbs\.db$/i, /(^|\/)desktop\.ini$/i];
+const MAX_ARCHIVE_ENTRIES = 2000;
+const MAX_ARCHIVE_DEPTH = 5;
+
+const isArchiveJunkEntry = (path: string): boolean => {
+  const baseName = path.split('/').pop() || path;
+  return baseName.startsWith('.') || ARCHIVE_JUNK_PATTERNS.some(pattern => pattern.test(path));
+};
+
+const isZipFile = (file: File): boolean => {
+  const lowerName = file.name.toLowerCase();
+  return lowerName.endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed';
+};
+
+interface ArchiveBudget {
+  remaining: number;
+}
+
+const expandArchive = async (
+  file: File,
+  pathPrefix: string,
+  depth: number,
+  budget: ArchiveBudget
+): Promise<File[]> => {
+  if (depth > MAX_ARCHIVE_DEPTH || budget.remaining <= 0) return [];
+
+  const { default: JSZip } = await import('jszip');
+  const archive = await JSZip.loadAsync(file);
+  const results: File[] = [];
+
+  for (const [entryPath, entry] of Object.entries(archive.files)) {
+    if (entry.dir) continue;
+    if (isArchiveJunkEntry(entryPath)) continue;
+    if (budget.remaining <= 0) break;
+
+    const fullPath = `${pathPrefix}${entryPath}`;
+
+    if (fullPath.toLowerCase().endsWith('.zip')) {
+      const nestedBlob = await entry.async('blob');
+      const nestedFile = new File([nestedBlob], fullPath, { type: 'application/zip' });
+      const nestedPrefix = `${fullPath.replace(/\.zip$/i, '')}/`;
+      budget.remaining -= 1;
+      const nestedResults = await expandArchive(nestedFile, nestedPrefix, depth + 1, budget);
+      results.push(...nestedResults);
+      continue;
+    }
+
+    const blob = await entry.async('blob');
+    const mimeType = (mimeLookup(fullPath) || blob.type || 'application/octet-stream') as string;
+    budget.remaining -= 1;
+    results.push(new File([blob], fullPath, { type: mimeType }));
+  }
+
+  return results;
+};
+
+/**
+ * Given raw FileList entries, expand any zip archives into their constituent
+ * files (recursively, with safety caps) and pass everything else through
+ * unchanged.
+ */
+const explodeArchives = async (files: File[]): Promise<File[]> => {
+  const budget: ArchiveBudget = { remaining: MAX_ARCHIVE_ENTRIES };
+  const expanded: File[] = [];
+
+  for (const file of files) {
+    if (!isZipFile(file)) {
+      expanded.push(file);
+      continue;
+    }
+
+    try {
+      const prefix = `${file.name.replace(/\.zip$/i, '')}/`;
+      const nested = await expandArchive(file, prefix, 0, budget);
+      if (nested.length === 0) {
+        console.warn(`Archive ${file.name} produced no usable entries; keeping the zip itself.`);
+        expanded.push(file);
+      } else {
+        expanded.push(...nested);
+      }
+    } catch (error) {
+      console.error(`Failed to expand archive ${file.name}, uploading the zip as-is:`, error);
+      expanded.push(file);
+    }
+  }
+
+  return expanded;
 };
 
 export default function App() {
@@ -67,22 +202,71 @@ export default function App() {
     initializeProject();
   }, []);
 
+  /**
+   * Resume the most recently updated case if one exists (repopulating its
+   * previously-saved documents so Bates numbering stays continuous and prior
+   * work isn't invisible after a reload), otherwise start a fresh case.
+   * Previously this always created a brand-new project on every mount,
+   * silently resetting Bates numbering to 1 and losing the file list.
+   */
   const initializeProject = async () => {
     setIsInitializingProject(true);
     try {
-      const timestamp = new Date().toISOString().split('T')[0];
-      const { project } = await createProject(
-        `Discovery ${timestamp}`,
-        'Created automatically',
-        BATES_PREFIX_DEFAULT
-      );
-      setCurrentProject(project);
-      setBatesCounter(project.bates_counter);
-      setProjectName(project.name);
-      console.log('Project initialized:', project);
+      const { projects } = await listProjects();
+
+      if (Array.isArray(projects) && projects.length > 0) {
+        const mostRecent: Project = projects[0];
+        const { project, documents } = await getProject(mostRecent.id);
+
+        setCurrentProject(project);
+        setBatesCounter(project.bates_counter);
+        setProjectName(project.name);
+
+        if (Array.isArray(documents) && documents.length > 0) {
+          setFiles(documents.map(mapCloudDocumentToDiscoveryFile));
+        }
+
+        console.log('Resumed existing case:', project.name, `(${documents?.length || 0} documents)`);
+        return;
+      }
+
+      await createNewCase();
     } catch (error) {
       console.error('Failed to initialize project:', error);
       const message = error instanceof Error ? error.message : 'Failed to initialize project.';
+      setSaveError(message);
+    } finally {
+      setIsInitializingProject(false);
+    }
+  };
+
+  const createNewCase = async () => {
+    const timestamp = new Date().toISOString().split('T')[0];
+    const { project } = await createProject(
+      `Discovery ${timestamp}`,
+      'Created automatically',
+      BATES_PREFIX_DEFAULT
+    );
+    setCurrentProject(project);
+    setBatesCounter(project.bates_counter);
+    setProjectName(project.name);
+    setFiles([]);
+    setSelectedFileId(null);
+    setViewMode(ViewMode.DASHBOARD);
+    console.log('Started new case:', project);
+  };
+
+  const handleStartNewCase = async () => {
+    if (files.length > 0 && !window.confirm('Start a new case? Your current case remains saved and can be resumed later - this just clears the workspace to begin a fresh one.')) {
+      return;
+    }
+    setIsInitializingProject(true);
+    setSaveError(null);
+    setSaveMessage(null);
+    try {
+      await createNewCase();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start a new case.';
       setSaveError(message);
     } finally {
       setIsInitializingProject(false);
@@ -96,15 +280,42 @@ export default function App() {
     if (!uploadedFiles) return;
 
     setIsScanning(true);
-    const newFiles: DiscoveryFile[] = [];
-    let currentCounter = batesCounter;
 
-    // Fix: Explicitly cast Array.from result to File[] to avoid 'unknown' type issues in filter and subsequent loops
-    const fileArray = (Array.from(uploadedFiles) as File[]).filter((file: File) => {
+    // Explicitly cast Array.from result to File[] to avoid 'unknown' type issues
+    const selectedFiles = (Array.from(uploadedFiles) as File[]).filter(
+      (file: File) => !(file.name.split('/').pop() || file.name).startsWith('.')
+    );
+
+    // Unpack any zip archives into their individual contents first, so a zip
+    // of scanned PDFs/photos/bodycam clips becomes one Bates-numbered
+    // discovery item per file rather than a single opaque archive.
+    const archiveExpandedFiles = await explodeArchives(selectedFiles);
+
+    const newFiles: DiscoveryFile[] = [];
+
+    const fileArray = archiveExpandedFiles.filter((file: File) => {
        const type = getFileType(file);
        // Skip unknown system files like .DS_Store or Thumbs.db
-       return type !== FileType.UNKNOWN && !file.name.startsWith('.');
+       return type !== FileType.UNKNOWN && !(file.name.split('/').pop() || file.name).startsWith('.');
     });
+
+    if (fileArray.length === 0) {
+      setIsScanning(false);
+      return;
+    }
+
+    // Atomically reserve this whole batch's worth of Bates numbers from the
+    // server rather than incrementing a local counter, so numbering stays
+    // correct and gap-free even across concurrent uploads/tabs and survives
+    // reloads (see reserve_bates_numbers() migration).
+    let currentCounter = batesCounter;
+    if (currentProject) {
+      try {
+        currentCounter = await reserveBatesNumbers(currentProject.id, fileArray.length);
+      } catch (error) {
+        console.error('Failed to reserve Bates numbers from server, falling back to local counter:', error);
+      }
+    }
 
     for (const file of fileArray) {
       const id = crypto.randomUUID();
@@ -341,7 +552,12 @@ export default function App() {
       return;
     }
 
-    if (files.length === 0) {
+    // Files with no live browser File handle (resumed from a previous
+    // session) are already persisted in Supabase per-document; only files
+    // uploaded fresh this session need to go through the manifest upload.
+    const filesToUpload = files.filter((f): f is DiscoveryFile & { file: File } => Boolean(f.file));
+
+    if (filesToUpload.length === 0) {
       setSaveError('Add evidence files before saving to the cloud.');
       setSaveMessage(null);
       return;
@@ -357,7 +573,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectName: projectName.trim(),
-          files: files.map(f => ({ id: f.id, name: f.name, mimeType: f.mimeType })),
+          files: filesToUpload.map(f => ({ id: f.id, name: f.name, mimeType: f.mimeType })),
         }),
       });
 
@@ -369,7 +585,7 @@ export default function App() {
       const { uploads } = (await presignResponse.json()) as { uploads: PresignedUpload[] };
       const uploadMap = new Map(uploads.map(upload => [upload.id, upload]));
 
-      for (const file of files) {
+      for (const file of filesToUpload) {
         const upload = uploadMap.get(file.id);
         if (!upload) {
           throw new Error(`Missing upload URL for ${file.name}`);
@@ -392,7 +608,7 @@ export default function App() {
       const manifestPayload = {
         projectName: projectName.trim(),
         casePerspective,
-        files: files.map<ProjectFileDescriptor>(f => {
+        files: filesToUpload.map<ProjectFileDescriptor>(f => {
           const upload = uploadMap.get(f.id);
           return {
             id: f.id,
@@ -518,6 +734,14 @@ export default function App() {
                  className={`px-3 py-2 rounded text-sm font-semibold transition-colors ${isSavingProject ? 'bg-slate-700 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500'} text-white shadow`}
                >
                  {isSavingProject ? 'Saving...' : 'Save to Cloud'}
+               </button>
+               <button
+                 onClick={handleStartNewCase}
+                 disabled={isInitializingProject}
+                 title="Save your current case and start a fresh one"
+                 className="px-3 py-2 rounded text-sm font-semibold border border-slate-700 text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-40"
+               >
+                 New Case
                </button>
              </div>
              <div className="text-xs min-h-[20px] text-right">
@@ -664,11 +888,17 @@ export default function App() {
                >
                  Evidence Viewer
                </button>
-               <button 
+               <button
                  onClick={() => setViewMode(ViewMode.TIMELINE)}
                  className={`text-sm font-medium h-full border-b-2 px-1 transition-all ${viewMode === ViewMode.TIMELINE ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                >
                  Chronology
+               </button>
+               <button
+                 onClick={() => setViewMode(ViewMode.HIGHLIGHTS)}
+                 className={`text-sm font-medium h-full border-b-2 px-1 transition-all ${viewMode === ViewMode.HIGHLIGHTS ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+               >
+                 Key Evidence
                </button>
             </div>
           )}
@@ -754,6 +984,10 @@ export default function App() {
              
              {viewMode === ViewMode.TIMELINE && (
                  <Timeline files={files} onSelectFile={handleSelectFile} />
+             )}
+
+             {viewMode === ViewMode.HIGHLIGHTS && (
+                 <CaseHighlights files={files} casePerspective={casePerspective} onSelectFile={handleSelectFile} />
              )}
           </div>
 

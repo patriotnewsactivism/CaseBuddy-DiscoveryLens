@@ -1,7 +1,9 @@
 FROM node:20-alpine AS base
 
-# Install dependencies for native modules
-RUN apk add --no-cache libc6-compat python3 make g++ cairo-dev pango-dev jpeg-dev giflib-dev freetype-dev
+# Install dependencies for native modules + ffmpeg (required to strip/downsample
+# audio from video files before transcription - see lib/mediaTranscoder.ts).
+# Without this, video transcription silently fails in production.
+RUN apk add --no-cache libc6-compat python3 make g++ cairo-dev pango-dev jpeg-dev giflib-dev freetype-dev ffmpeg
 
 # Install dependencies only when needed
 FROM base AS deps
