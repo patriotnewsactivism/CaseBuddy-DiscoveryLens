@@ -6,11 +6,11 @@ import { sha256FromFile } from './checksum';
  */
 
 // Project Operations
-export async function createProject(name: string, description?: string, batesPrefix: string = 'DEF') {
+export async function createProject(name: string, description?: string, batesPrefix: string = 'DEF', caseId?: string | null) {
   const response = await fetch('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description, batesPrefix }),
+    body: JSON.stringify({ name, description, batesPrefix, caseId: caseId ?? null }),
   });
 
   if (!response.ok) {
@@ -85,12 +85,7 @@ export async function listProjects() {
 }
 
 // Document Operations
-export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectId: string) {
-  if (!discoveryFile.file) {
-    throw new Error(`Cannot save ${discoveryFile.name} to cloud storage: no local file data available (already saved, or a resumed cloud-only entry).`);
-  }
-  const localFile = discoveryFile.file;
-
+export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectId: string, userId?: string) {
   try {
     const checksum = await sha256FromFile(localFile);
     const formData = new FormData();
@@ -120,6 +115,7 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         projectId,
+        userId,
         name: discoveryFile.name,
         mimeType: discoveryFile.mimeType,
         fileType: discoveryFile.type,
@@ -134,7 +130,9 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
     });
 
     if (!docResponse.ok) {
-      throw new Error('Failed to create document record');
+      const errBody = await docResponse.json().catch(() => ({ error: 'Failed to create document record' }));
+      const message = errBody.details ? `${errBody.error}: ${errBody.details}` : errBody.error || 'Failed to create document record';
+      throw new Error(message);
     }
 
     const { document } = await docResponse.json();
@@ -151,12 +149,19 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
 }
 
 export async function updateDocumentAnalysis(documentId: string, analysis: any) {
+  // Mirror key analysis fields into dedicated columns for CaseBuddy to query,
+  // while also storing the full structured JSON in the analysis column.
   const response = await fetch(`/api/documents/${documentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       analysis,
       status: 'complete',
+      // Dedicated columns for easier querying from CaseBuddy and other consumers
+      summary: analysis?.summary ?? null,
+      keyFacts: analysis?.relevantFacts ?? null,
+      extractedText: analysis?.transcription ?? null,
+      evidenceType: analysis?.evidenceType ?? null,
     }),
   });
 

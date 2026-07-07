@@ -2,26 +2,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 import { validateCreateProjectInput } from '@/lib/projectValidation';
 
-// GET /api/projects - List all projects
+// GET /api/projects - List all projects (optionally filtered by caseId)
 export async function GET(request: NextRequest) {
   try {
     const supabase = getSupabaseAdmin();
+    const { searchParams } = new URL(request.url);
+    const caseId = searchParams.get('caseId');
 
-    const { data: projects, error } = await supabase
-      .from('projects')
-      .select('*')
-      .order('updated_at', { ascending: false });
+    let query = supabase.from('projects').select('*').order('updated_at', { ascending: false });
+    if (caseId) query = query.eq('case_id', caseId);
 
+    const { data: projects, error } = await query;
     if (error) throw error;
 
     return NextResponse.json({ projects });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error fetching projects:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch projects', details: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch projects', details: message }, { status: 500 });
   }
 }
 
@@ -30,12 +28,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const validation = validateCreateProjectInput(body);
-    if (!validation.ok) {
-      return NextResponse.json({ error: validation.error }, { status: 400 });
-    }
+    if (!validation.ok) return NextResponse.json({ error: validation.error }, { status: 400 });
 
-    const { name, description, batesPrefix } = validation.value;
-
+    const { name, description, batesPrefix, caseId } = validation.value;
     const supabase = getSupabaseAdmin();
 
     const { data: project, error } = await supabase
@@ -45,6 +40,7 @@ export async function POST(request: NextRequest) {
         description,
         bates_prefix: batesPrefix,
         bates_counter: 1,
+        case_id: caseId ?? null,
       })
       .select()
       .single();
@@ -55,9 +51,6 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error creating project:', error);
-    return NextResponse.json(
-      { error: 'Failed to create project', details: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to create project', details: message }, { status: 500 });
   }
 }

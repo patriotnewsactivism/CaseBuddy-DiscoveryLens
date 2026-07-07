@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await (file as File).arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    if (checksum) {
+    if (checksum && checksum.length > 0) {
       const hash = crypto.createHash('sha256').update(buffer).digest('hex');
       if (hash !== checksum) {
         return NextResponse.json(

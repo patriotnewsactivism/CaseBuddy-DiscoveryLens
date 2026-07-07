@@ -5,7 +5,6 @@ import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import { lookup as mimeLookup } from 'mime-types';
 import { PDFParse } from 'pdf-parse';
-import { extractTextWithAzureOCR, isAzureOCRConfigured } from './azureOCR';
 
 export interface ExtractionResult {
   text: string;
@@ -145,30 +144,10 @@ const extractFromPdf = async (
     
     if (onProgress) onProgress(50, `Extracted text from ${pageCount} pages`);
     
+    // Scanned PDFs (no text layer) are handled downstream by the multimodal
+    // AI providers (Gemini reads the base64 payload directly)
     const isScanned = normalizedText.length < 100;
-    
-    if (isScanned && isAzureOCRConfigured()) {
-      if (onProgress) {
-        onProgress(50, 'PDF appears to be scanned, using Azure OCR...');
-      }
-      
-      try {
-        const ocrResult = await extractTextWithAzureOCR(buffer, 'application/pdf', (progress, stage) => {
-          if (onProgress) {
-            onProgress(50 + progress * 0.5, stage);
-          }
-        });
-        
-        await parser.destroy();
-        return { 
-          text: ocrResult.text, 
-          isScanned: true 
-        };
-      } catch (ocrError) {
-        console.warn('Azure OCR failed, falling back to extracted text:', ocrError);
-      }
-    }
-    
+
     if (onProgress) onProgress(100, 'Extraction complete');
     
     await parser.destroy();

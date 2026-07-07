@@ -21,6 +21,7 @@
     "chrono-node": "^2.7.7",
     "file-type": "^21.1.1",
     "jszip": "^3.10.1",
+    "lucide-react": "^0.468.0",
     "mammoth": "^1.11.0",
     "mime-types": "^3.0.2",
     "next": "^16.0.10",

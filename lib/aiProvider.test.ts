@@ -11,14 +11,24 @@ describe('getConfiguredAIProvider', () => {
     expect(getConfiguredAIProvider({ GEMINI_API_KEY: 'gm-test' })).toBe('gemini');
   });
 
-  it('uses azure when Azure OpenAI config is present', () => {
+  it('uses cohere when COHERE_API_KEY is set', () => {
+    expect(getConfiguredAIProvider({ COHERE_API_KEY: 'co-test' })).toBe('cohere');
+  });
+
+  it('prefers free tiers: cohere over gemini over paid openai', () => {
     expect(
       getConfiguredAIProvider({
-        AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com',
-        AZURE_OPENAI_KEY: 'azure-key',
-        AZURE_OPENAI_DEPLOYMENT: 'gpt-4o-mini',
+        COHERE_API_KEY: 'co-test',
+        GEMINI_API_KEY: 'gm-test',
+        OPENAI_API_KEY: 'sk-test',
       })
-    ).toBe('azure');
+    ).toBe('cohere');
+    expect(
+      getConfiguredAIProvider({
+        GEMINI_API_KEY: 'gm-test',
+        OPENAI_API_KEY: 'sk-test',
+      })
+    ).toBe('gemini');
   });
 
   it('respects AI_PROVIDER=openai when key exists', () => {
@@ -41,20 +51,19 @@ describe('getConfiguredAIProvider', () => {
     ).toBe('gemini');
   });
 
-  it('respects AI_PROVIDER=azure when config exists', () => {
+  it('respects AI_PROVIDER=cohere when key exists', () => {
     expect(
       getConfiguredAIProvider({
-        AI_PROVIDER: 'azure',
-        AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com',
-        AZURE_OPENAI_KEY: 'azure-key',
-        AZURE_OPENAI_DEPLOYMENT: 'gpt-4o-mini',
+        AI_PROVIDER: 'cohere',
+        COHERE_API_KEY: 'co-test',
+        GEMINI_API_KEY: 'gm-test',
       })
-    ).toBe('azure');
+    ).toBe('cohere');
   });
 
   it('throws when no keys are configured', () => {
     expect(() => getConfiguredAIProvider({})).toThrow(
-      'No AI provider API key configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or Azure OpenAI credentials.'
+      'No AI provider API key configured. Set COHERE_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY.'
     );
   });
 
@@ -70,9 +79,9 @@ describe('getConfiguredAIProvider', () => {
     );
   });
 
-  it('throws when provider is azure but config is incomplete', () => {
-    expect(() => getConfiguredAIProvider({ AI_PROVIDER: 'azure', AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com' })).toThrow(
-      'AI_PROVIDER is set to azure but Azure OpenAI configuration is incomplete.'
+  it('throws when provider is cohere but key is missing', () => {
+    expect(() => getConfiguredAIProvider({ AI_PROVIDER: 'cohere', OPENAI_API_KEY: 'sk-test' })).toThrow(
+      'AI_PROVIDER is set to cohere but COHERE_API_KEY is missing.'
     );
   });
 });

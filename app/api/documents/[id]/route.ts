@@ -46,13 +46,30 @@ export async function PATCH(
       analysis?: Database['public']['Tables']['documents']['Row']['analysis'];
       status?: Database['public']['Tables']['documents']['Row']['status'];
       errorMessage?: string | null;
+      // Dedicated mirror columns for CaseBuddy compatibility
+      summary?: string | null;
+      keyFacts?: string[] | string | null;
+      extractedText?: string | null;
+      evidenceType?: string | null;
+      sentiment?: string | null;
     };
-    const { analysis, status, errorMessage } = body;
+    const { analysis, status, errorMessage, summary, keyFacts, extractedText, evidenceType } = body;
 
     const supabase = getSupabaseAdmin();
 
-    const updates: Partial<Database['public']['Tables']['documents']['Update']> = {};
-    if (analysis !== undefined) updates.analysis = analysis;
+    const updates: Record<string, unknown> = {};
+    if (analysis !== undefined) {
+      updates.analysis = analysis;
+      // Flag for CaseBuddy so DiscoveryLens-analyzed docs join the master case
+      if (analysis) updates.ai_analyzed = true;
+      // Mirror entities into CaseBuddy's shape ({name, type, context})
+      const entityList = (analysis as { entities?: unknown } | null)?.entities;
+      if (Array.isArray(entityList) && entityList.length > 0) {
+        updates.entities = entityList
+          .filter((e): e is string => typeof e === 'string' && e.trim().length > 0)
+          .map((name) => ({ name: name.trim(), type: 'other', context: 'DiscoveryLens analysis' }));
+      }
+    }
     if (status !== undefined) {
       if (status === 'processing' || status === 'complete' || status === 'failed') {
         updates.status = status;
@@ -63,11 +80,30 @@ export async function PATCH(
         );
       }
     }
-    if (errorMessage !== undefined) updates.error_message = errorMessage;
+    // NOTE: errorMessage and sentiment have no dedicated columns in the shared
+    // schema — they live inside the analysis JSON only. Writing them as columns
+    // made the whole update fail, which is why no analysis ever persisted.
+    void errorMessage;
+    // Mirror individual fields for CaseBuddy querying
+    if (summary !== undefined) updates.summary = summary;
+    if (keyFacts !== undefined) {
+      // key_facts is text[] in the shared schema; accept legacy string payloads
+      updates.key_facts = Array.isArray(keyFacts)
+        ? keyFacts
+        : keyFacts
+          ? keyFacts.split('\n').map((s) => s.trim()).filter(Boolean)
+          : null;
+    }
+    if (extractedText !== undefined) {
+      updates.extracted_text = extractedText;
+      // Mirror into ocr_text so CaseBuddy chat/analysis can quote the content
+      if (extractedText) updates.ocr_text = extractedText;
+    }
+    if (evidenceType !== undefined) updates.document_type = evidenceType;
 
     const { data: document, error } = await supabase
       .from('documents')
-      .update(updates)
+      .update(updates as any)
       .eq('id', id)
       .select()
       .single();

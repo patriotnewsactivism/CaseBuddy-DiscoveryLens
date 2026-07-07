@@ -13,7 +13,12 @@
       "Bash(git pull:*)",
       "mcp__claude_ai_Vercel__deploy_to_vercel",
       "Bash(vercel ls:*)",
-      "Bash(curl -s -I https://discovery.casebuddy.live)"
+      "Bash(curl -s -I https://discovery.casebuddy.live)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -r processing_queue C:/casebuddy-master/CaseBuddy-DiscoveryLens --include=*.ts --include=*.tsx)",
+      "Bash(grep -r \"getSupabaseClient\\\\|from.*processing\" C:/casebuddy-master/CaseBuddy-DiscoveryLens/app --include=*.ts --include=*.tsx)",
+      "Bash(grep:*)",
+      "Bash(grep -r getSupabaseClient\\\\\\(\\\\\\) C:/casebuddy-master/CaseBuddy-DiscoveryLens --include=*.ts --include=*.tsx)"
     ]
   }
 }

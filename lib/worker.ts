@@ -5,6 +5,14 @@ import { analyzeFileServer as analyzeWithAzure } from './azureOpenAIService';
 import { analyzeFileServer as analyzeWithOpenAI } from './openAIService';
 import { analyzeFileServer as analyzeWithGemini } from './geminiServerService';
 import { LRUCache } from './cache';
+
+// Free-first provider dispatch (Azure removed): Gemini free tier when
+// available, otherwise OpenAI. Cohere is handled in the analyze API route.
+const analyzeFileServer: typeof analyzeWithGemini = (input) => {
+  const provider = getConfiguredAIProvider();
+  if (provider === 'openai') return analyzeWithOpenAI(input);
+  return analyzeWithGemini(input);
+};
 import type { Database, Json } from './database.types';
 
 // Dispatch to whichever provider is configured (AI_PROVIDER env, or
@@ -404,8 +412,8 @@ class JobWorker {
 
   private async handleJobFailure(job: JobQueueRow, error: Error): Promise<void> {
     const supabase = getSupabaseAdmin();
-    const newAttempts = job.attempts + 1;
-    const shouldRetry = newAttempts < job.max_attempts;
+    const newAttempts = (job.attempts ?? 0) + 1;
+    const shouldRetry = newAttempts < (job.max_attempts ?? 3);
 
     if (shouldRetry) {
       await supabase
