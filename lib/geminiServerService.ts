@@ -60,6 +60,66 @@ const createChatCacheKey = (
   return LRUCache.createKey('chat', query, filesHash, casePerspective || 'default');
 };
 
+/**
+ * Robust JSON parsing with corrective retry
+ */
+async function robustJsonParseAndRetry<T>(
+  jsonText: string,
+  client: GoogleGenAI,
+  model: string,
+  systemInstruction: string,
+  originalContents: any[]
+): Promise<T> {
+  try {
+    return JSON.parse(jsonText) as T;
+  } catch (error) {
+    console.warn('[robustJsonParseAndRetry] First JSON parse attempt failed. Retrying with corrective prompt...');
+    try {
+      const retryResponse = await client.models.generateContent({
+        model,
+        contents: [
+          ...originalContents,
+          { role: 'model', parts: [{ text: jsonText }] },
+          { role: 'user', parts: [{ text: 'Your previous response was not valid JSON. Please correct it and return ONLY valid JSON without markdown wrapping.' }] }
+        ],
+        config: {
+          systemInstruction,
+          responseMimeType: 'application/json',
+        }
+      });
+      const retryText = retryResponse.text || '{}';
+      return JSON.parse(retryText) as T;
+    } catch (retryError) {
+      console.error('[robustJsonParseAndRetry] Corrective retry also failed:', retryError);
+      throw error; // Throw the original parse error or let this throw
+    }
+  }
+}
+
+/**
+ * Helper to process an array in batches with limited concurrency
+ */
+async function batchWithConcurrency<T, R>(
+  items: T[],
+  batchSize: number,
+  concurrencyLimit: number,
+  fn: (batch: T[], batchIdx: number) => Promise<R>
+): Promise<R[]> {
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    batches.push(items.slice(i, i + batchSize));
+  }
+
+  const results: R[] = [];
+  for (let i = 0; i < batches.length; i += concurrencyLimit) {
+    const currentBatches = batches.slice(i, i + concurrencyLimit);
+    const chunkPromises = currentBatches.map((batch, offset) => fn(batch, i + offset));
+    const chunkResults = await Promise.all(chunkPromises);
+    results.push(...chunkResults);
+  }
+  return results;
+}
+
 export async function analyzeFileServer({
   base64Data,
   mimeType,
@@ -102,6 +162,108 @@ export async function analyzeFileServer({
         ? 'You are assisting a plaintiff/litigator. A "hostile" sentiment means it harms the plaintiff; "cooperative" means it supports the plaintiff.'
         : 'You are reviewing materials in your own matter. Treat sentiment as friendly/hostile relative to the user.';
 
+  const evidenceCategoriesList = EVIDENCE_CATEGORIES.join(', ');
+  const systemInstruction = `${SYSTEM_INSTRUCTION_ANALYZER}\n\nValid evidence types: ${evidenceCategoriesList}\n\nRespond with a JSON object containing: summary (string), evidenceType (one of the valid types), entities (string array), dates (string array), timelineEvents (array of {date: string, description: string} pairs - one per distinct event, see instructions above), relevantFacts (string array), sentiment (one of: Hostile, Cooperative, Neutral).`;
+
+  const client = getGenAIClient();
+
+  // Threshold for Map-Reduce: > 15 chunks
+  if (textChunks && textChunks.length > 15) {
+    console.log(`[analyzeFileServer] Chunks (${textChunks.length}) exceed threshold of 15. Initiating Map-Reduce architecture...`);
+    
+    // Batch size: 12 chunks (approx 96K characters, well within single-call safety bounds)
+    // Concurrency: 3 simultaneous requests to avoid rate limits
+    const partialResults = await batchWithConcurrency<string, any>(
+      textChunks,
+      12,
+      3,
+      async (batchChunks, idx) => {
+        const batchContent = [
+          `Analyze this discovery file segment (Batch ${idx + 1}).\nBates Number: ${batesNumber}.\nFilename: ${fileName}.\nFile Type: ${fileType}.\nCase Perspective: ${perspectiveText}`,
+        ];
+        if (metadata) {
+          batchContent.push(`File metadata: ${JSON.stringify(metadata)}`);
+        }
+        batchChunks.forEach((chunk, chunkIdx) => {
+          batchContent.push(`[Document Chunk ${chunkIdx + 1}]\n${chunk}`);
+        });
+
+        batchContent.push(
+          'INSTRUCTIONS:\n- Extract key facts, entities, dates, and relevant legal information from this batch.\n- Provide a concise summary of the content.'
+        );
+
+        const batchSystemInstruction = `You are a helper segment analyzer. Extract a list of: key facts (string array), entities (string array), dates (string array), timelineEvents (array of {date: string, description: string} pairs), and a summary of this batch. Return ONLY valid JSON format with keys: "summary", "entities", "dates", "timelineEvents", "relevantFacts".`;
+
+        const response = await client.models.generateContent({
+          model: GEMINI_ANALYSIS_MODEL,
+          contents: [{ role: 'user', parts: [{ text: batchContent.join('\n\n') }] }],
+          config: {
+            systemInstruction: batchSystemInstruction,
+            responseMimeType: 'application/json',
+          },
+        });
+
+        const text = response.text || '{}';
+        return robustJsonParseAndRetry<any>(text, client, GEMINI_ANALYSIS_MODEL, batchSystemInstruction, [
+          { role: 'user', parts: [{ text: batchContent.join('\n\n') }] }
+        ]);
+      }
+    );
+
+    console.log(`[analyzeFileServer] Map phase completed with ${partialResults.length} partial summaries. Executing Reduce phase...`);
+
+    // Combine partial summaries and extractions for the final synthesis call
+    const reducePromptContent: string[] = [
+      `Synthesize these partial analyses into a single, unified, cohesive document-level analysis.\nBates Number: ${batesNumber}.\nFilename: ${fileName}.\nFile Type: ${fileType}.\nCase Perspective: ${perspectiveText}\n\nHere are the partial batch results:`,
+    ];
+
+    partialResults.forEach((result, idx) => {
+      reducePromptContent.push(`[Batch ${idx + 1} Partial Summary]:\n${result.summary || ''}`);
+      if (result.relevantFacts && result.relevantFacts.length > 0) {
+        reducePromptContent.push(`[Batch ${idx + 1} Key Facts]:\n${JSON.stringify(result.relevantFacts)}`);
+      }
+      if (result.timelineEvents && result.timelineEvents.length > 0) {
+        reducePromptContent.push(`[Batch ${idx + 1} Timeline Events]:\n${JSON.stringify(result.timelineEvents)}`);
+      }
+      if (result.entities && result.entities.length > 0) {
+        reducePromptContent.push(`[Batch ${idx + 1} Entities]:\n${JSON.stringify(result.entities)}`);
+      }
+      if (result.dates && result.dates.length > 0) {
+        reducePromptContent.push(`[Batch ${idx + 1} Dates]:\n${JSON.stringify(result.dates)}`);
+      }
+    });
+
+    reducePromptContent.push(
+      'FINAL INSTRUCTIONS:\n- Synthesize, clean, deduplicate, and merge these parts into a unified document-level summary, entity list, date list, timelineEvents, and key facts.\n- Ensure the overall analysis reads continuously and matches the requested perspective.'
+    );
+
+    const reduceContents = [{ role: 'user', parts: [{ text: reducePromptContent.join('\n\n') }] }];
+    const response = await client.models.generateContent({
+      model: GEMINI_ANALYSIS_MODEL,
+      contents: reduceContents,
+      config: {
+        systemInstruction,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const finalResultText = response.text || '{}';
+    const analysisResult = await robustJsonParseAndRetry<Record<string, unknown>>(
+      finalResultText,
+      client,
+      GEMINI_ANALYSIS_MODEL,
+      systemInstruction,
+      reduceContents
+    );
+
+    if (ENABLE_CACHING) {
+      analysisCache.cacheAnalysis(cacheKey, analysisResult, CACHE_TTL_MS);
+    }
+
+    return analysisResult;
+  }
+
+  // Fast path for small files (or non-chunked / multimedia files)
   const contentParts: string[] = [
     `Analyze this discovery file.\nBates Number: ${batesNumber}.\nFilename: ${fileName}.\nFile Type: ${fileType}.\nCase Perspective: ${perspectiveText}`,
   ];
@@ -130,20 +292,16 @@ export async function analyzeFileServer({
     contentParts.push('- For audio/video without transcription, describe observable details.');
   }
 
-  const evidenceCategoriesList = EVIDENCE_CATEGORIES.join(', ');
-
-  const systemInstruction = `${SYSTEM_INSTRUCTION_ANALYZER}\n\nValid evidence types: ${evidenceCategoriesList}\n\nRespond with a JSON object containing: summary (string), evidenceType (one of the valid types), entities (string array), dates (string array), timelineEvents (array of {date: string, description: string} pairs - one per distinct event, see instructions above), relevantFacts (string array), sentiment (one of: Hostile, Cooperative, Neutral).`;
-
   const parts: any[] = [{ text: contentParts.join('\n\n') }];
 
   if (base64Data && mimeType && !textContent && (!textChunks || textChunks.length === 0)) {
     parts.push({ inlineData: { mimeType, data: base64Data } });
   }
 
-  const client = getGenAIClient();
+  const contents = [{ role: 'user', parts }];
   const response = await client.models.generateContent({
     model: GEMINI_ANALYSIS_MODEL,
-    contents: [{ role: 'user', parts }],
+    contents,
     config: {
       systemInstruction,
       responseMimeType: 'application/json',
@@ -151,7 +309,13 @@ export async function analyzeFileServer({
   });
 
   const responseText = response.text || '{}';
-  const analysisResult = JSON.parse(responseText);
+  const analysisResult = await robustJsonParseAndRetry<Record<string, unknown>>(
+    responseText,
+    client,
+    GEMINI_ANALYSIS_MODEL,
+    systemInstruction,
+    contents
+  );
 
   if (ENABLE_CACHING) {
     analysisCache.cacheAnalysis(cacheKey, analysisResult, CACHE_TTL_MS);
@@ -243,18 +407,105 @@ export async function generateInsightsServer(
     if (cached !== null) return cached;
   }
 
-  const prompt = buildInsightsPrompt(files, casePerspective);
   const client = getGenAIClient();
+
+  // If we have a large number of files (e.g. > 15 files), run a Map-Reduce synthesis on them
+  if (files.length > 15) {
+    console.log(`[generateInsightsServer] Files (${files.length}) exceed threshold of 15. Initiating Map-Reduce architecture for Insights...`);
+    
+    // Map phase: chunk files array into sub-batches of 10 files
+    const partialHighlights = await batchWithConcurrency<InsightsFileContext, CaseHighlight[]>(
+      files,
+      10,
+      3,
+      async (batchFiles) => {
+        const prompt = buildInsightsPrompt(batchFiles, casePerspective);
+        const contents = [{ role: 'user', parts: [{ text: prompt }] }];
+        const response = await client.models.generateContent({
+          model: GEMINI_ANALYSIS_MODEL,
+          contents,
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION_INSIGHTS,
+            responseMimeType: 'application/json',
+          },
+        });
+        const text = response.text || '{}';
+        const parsed = await robustJsonParseAndRetry<any>(
+          text,
+          client,
+          GEMINI_ANALYSIS_MODEL,
+          SYSTEM_INSTRUCTION_INSIGHTS,
+          contents
+        );
+        return sanitizeHighlights(parsed);
+      }
+    );
+
+    console.log(`[generateInsightsServer] Map phase completed. Reducer merging ${partialHighlights.length} batches...`);
+
+    // Reduce phase: Combine/synthesize the highlights from all batches
+    const flattenedHighlights = partialHighlights.flat();
+    
+    // Construct synthesis reduction prompt
+    const reducePrompt = `You are an expert trial lawyer. Review these key insights extracted from multiple batches of discovery files in this matter.
+Deduplicate, consolidate, and prioritize them into a single, cohesive, high-impact final set of highlights matching the case perspective.
+
+Case Perspective: ${casePerspective || 'Neutral review.'}
+
+Partial highlights input:
+${JSON.stringify(flattenedHighlights)}
+
+FINAL INSTRUCTIONS:
+Return a JSON array of final, deduplicated, consolidated CaseHighlight objects matching the exact shape expected:
+Array of objects containing: batesNumber (string), description (string), evidenceType (string), weight (number: 1-10), tag (one of: CRITICAL, HELPFUL, HOSTILE, INADMISSIBLE, HEARSAY).`;
+
+    const contents = [{ role: 'user', parts: [{ text: reducePrompt }] }];
+    const response = await client.models.generateContent({
+      model: GEMINI_ANALYSIS_MODEL,
+      contents,
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION_INSIGHTS,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const text = response.text || '[]';
+    const parsed = await robustJsonParseAndRetry<any>(
+      text,
+      client,
+      GEMINI_ANALYSIS_MODEL,
+      SYSTEM_INSTRUCTION_INSIGHTS,
+      contents
+    );
+    const highlights = sanitizeHighlights(parsed);
+
+    if (ENABLE_CACHING) {
+      analysisCache.cacheAnalysis(cacheKey, highlights, CACHE_TTL_MS);
+    }
+
+    return highlights;
+  }
+
+  const prompt = buildInsightsPrompt(files, casePerspective);
+  const contents = [{ role: 'user', parts: [{ text: prompt }] }];
   const response = await client.models.generateContent({
     model: GEMINI_ANALYSIS_MODEL,
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    contents,
     config: {
       systemInstruction: SYSTEM_INSTRUCTION_INSIGHTS,
       responseMimeType: 'application/json',
     },
   });
 
-  const highlights = sanitizeHighlights(JSON.parse(response.text || '{}'));
+  const text = response.text || '{}';
+  const parsed = await robustJsonParseAndRetry<any>(
+    text,
+    client,
+    GEMINI_ANALYSIS_MODEL,
+    SYSTEM_INSTRUCTION_INSIGHTS,
+    contents
+  );
+  const highlights = sanitizeHighlights(parsed);
 
   if (ENABLE_CACHING) {
     analysisCache.cacheAnalysis(cacheKey, highlights, CACHE_TTL_MS);
