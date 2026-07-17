@@ -3,6 +3,7 @@ import { getConfiguredAIProvider } from '@/lib/aiProvider';
 import { isAIAuthError, isAIProviderConfigError } from '@/lib/aiError';
 import { chatWithDiscoveryServer as chatWithOpenAI } from '@/lib/openAIService';
 import { chatWithDiscoveryServer as chatWithGemini } from '@/lib/geminiServerService';
+import { chatWithDiscoveryServer as chatWithMistral, isMistralConfigured } from '@/lib/mistralServerService';
 
 export const maxDuration = 300; // 5 minutes for complex queries
 
@@ -22,13 +23,16 @@ export async function POST(request: NextRequest) {
     const provider = getConfiguredAIProvider();
     console.log('[chat] Provider selection:', { provider });
 
-    // Cohere is analysis-only; chat routes to Gemini (free) when available,
-    // otherwise OpenAI
+    // Cohere is analysis-only. Chat prefers Mistral (huge free tier, 1B tok/mo)
+    // when configured, then Gemini (free), then OpenAI as paid last resort.
+    // Explicit AI_PROVIDER=openai still forces OpenAI.
     const chatWithProvider = provider === 'openai'
       ? chatWithOpenAI
-      : process.env.GEMINI_API_KEY
-        ? chatWithGemini
-        : chatWithOpenAI;
+      : isMistralConfigured()
+        ? chatWithMistral
+        : process.env.GEMINI_API_KEY
+          ? chatWithGemini
+          : chatWithOpenAI;
 
     const response = await chatWithProvider(
       query,
