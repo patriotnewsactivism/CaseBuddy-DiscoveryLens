@@ -7,8 +7,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 // gemini-2.5-flash is the model version proven working in production across
 // CaseBuddy (lexsim) and case-companion's OCR fallback path. Keep DiscoveryLens
 // in sync with that rather than the older 2.0 line. Override via env if needed.
-const GEMINI_ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.5-flash';
-const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-2.5-flash';
+const GEMINI_ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-flash-latest';
+const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-flash-latest';
 
 if (!GEMINI_API_KEY) {
   console.warn('[geminiServerService] GEMINI_API_KEY not set; Gemini provider will be unavailable.');
