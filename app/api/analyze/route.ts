@@ -3,6 +3,7 @@ import { getConfiguredAIProvider } from '@/lib/aiProvider';
 import { isAIAuthError, isAIProviderConfigError } from '@/lib/aiError';
 import { analyzeFileServer as analyzeWithOpenAI } from '@/lib/openAIService';
 import { analyzeFileServer as analyzeWithGemini } from '@/lib/geminiServerService';
+import { analyzeFileServer as analyzeWithMistral } from '@/lib/mistralServerService';
 import { analyzeDiscoveryDoc } from '@/lib/cohereService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
@@ -137,9 +138,11 @@ export async function POST(request: NextRequest) {
 
     const analyzeWithProvider = provider === 'cohere'
       ? null  // handled separately below via analyzeDiscoveryDoc
-      : provider === 'gemini'
-        ? analyzeWithGemini
-        : analyzeWithOpenAI;
+      : provider === 'mistral'
+        ? analyzeWithMistral
+        : provider === 'gemini'
+          ? analyzeWithGemini
+          : analyzeWithOpenAI;
 
     console.log(`[analyze] Calling analyzeFileServer (${provider})...`);
     // Route to Cohere for document/OCR analysis when configured (256K context)
@@ -148,11 +151,34 @@ export async function POST(request: NextRequest) {
       const cohereResult = await analyzeDiscoveryDoc(systemPrompt, cleanedText || extractedText || '');
       return NextResponse.json({ analysis: cohereResult.text, provider: 'cohere', model: cohereResult.model });
     }
+    if (provider === 'mistral' && !cleanedText && !extractedText) {
+      // No text available (e.g. scanned image) — Mistral's endpoint here is
+      // text-only, so use the multimodal OpenAI vision path if configured.
+      if (process.env.OPENAI_API_KEY) {
+        const analysis = await analyzeWithOpenAI({
+          mimeType: detectedMime || mimeType,
+          fileName: fileName || 'Unknown',
+          batesNumber: batesNumber || 'UNKNOWN',
+          fileType: fileType || 'DOCUMENT',
+          casePerspective,
+          textContent: cleanedText,
+          textChunks: chunks,
+          metadata,
+          base64Data: payloadBase64,
+        });
+        return NextResponse.json(analysis);
+      }
+      return NextResponse.json(
+        { error: 'No text could be extracted and no multimodal provider is configured.' },
+        { status: 422 }
+      );
+    }
+
     if (provider === 'cohere') {
       // No text available (e.g. scanned image) — Cohere is text-only, so use
-      // the multimodal Gemini path if a key exists
-      if (process.env.GEMINI_API_KEY) {
-        const analysis = await analyzeWithGemini({
+      // the multimodal OpenAI path if a key exists
+      if (process.env.OPENAI_API_KEY) {
+        const analysis = await analyzeWithOpenAI({
           mimeType: detectedMime || mimeType,
           fileName: fileName || 'Unknown',
           batesNumber: batesNumber || 'UNKNOWN',

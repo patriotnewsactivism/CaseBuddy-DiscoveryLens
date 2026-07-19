@@ -4,19 +4,20 @@ import { getConfiguredAIProvider } from './aiProvider';
 import { analyzeFileServer as analyzeWithAzure } from './azureOpenAIService';
 import { analyzeFileServer as analyzeWithOpenAI } from './openAIService';
 import { analyzeFileServer as analyzeWithGemini } from './geminiServerService';
+import { analyzeFileServer as analyzeWithMistral } from './mistralServerService';
 import { LRUCache } from './cache';
 
 import type { Database, Json } from './database.types';
 
 // Dispatch to whichever provider is configured (AI_PROVIDER env, or
-// auto-detected azure > openai > gemini) - keeps the background job worker
-// in sync with the same provider selection used by app/api/analyze/route.ts.
-// Previously this was hardcoded to Azure OpenAI regardless of configuration,
-// which meant queued "analyze" jobs would fail outright whenever Azure OpenAI
-// wasn't configured even if Gemini or OpenAI were.
+// auto-detected mistral > cohere > openai > gemini) - keeps the background
+// job worker in sync with the same provider selection used by
+// app/api/analyze/route.ts. Gemini is intentionally not auto-selected
+// (model-deprecation surprises); Mistral is preferred when configured.
 async function analyzeFileServer(args: Parameters<typeof analyzeWithGemini>[0]) {
   const provider = getConfiguredAIProvider();
   if ((provider as string) === 'azure') return analyzeWithAzure(args);
+  if (provider === 'mistral') return analyzeWithMistral(args);
   if (provider === 'gemini') return analyzeWithGemini(args);
   return analyzeWithOpenAI(args);
 }
