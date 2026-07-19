@@ -87,6 +87,10 @@ export async function listProjects() {
 // Document Operations
 export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectId: string, userId?: string) {
   try {
+    if (!discoveryFile.file) {
+      throw new Error('No local file handle available to upload');
+    }
+    const localFile = discoveryFile.file;
     const checksum = await sha256FromFile(localFile);
     const formData = new FormData();
     formData.append('file', localFile);

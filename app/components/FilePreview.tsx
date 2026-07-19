@@ -184,7 +184,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ file, onExportDocument }) => 
                 {analysis.sentiment}
               </span>
             )}
-            <span className="bg-white/10 px-2 py-1 rounded">{(file.file.size / 1024 / 1024).toFixed(2)} MB</span>
+            <span className="bg-white/10 px-2 py-1 rounded">{file.file ? (file.file.size / 1024 / 1024).toFixed(2) : '?'} MB</span>
           </div>
         </div>
 

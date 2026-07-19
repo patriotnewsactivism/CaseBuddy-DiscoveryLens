@@ -705,7 +705,7 @@ export default function App() {
       };
       await saveProjectLocally(snapshot);
       // Save file blobs in parallel
-      await Promise.all(files.map(f => saveFileBlob(f.id, f.file)));
+      await Promise.all(files.filter(f => f.file).map(f => saveFileBlob(f.id, f.file as Blob)));
       setLocalSaveMsg('Saved locally.');
     } catch (err) {
       console.error('Local save failed:', err);

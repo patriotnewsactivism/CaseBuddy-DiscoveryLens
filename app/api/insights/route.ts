@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
     const provider = getConfiguredAIProvider();
     const generateWithProvider =
-      provider === 'azure' ? generateWithAzure : provider === 'gemini' ? generateWithGemini : generateWithOpenAI;
+      (provider as string) === 'azure' ? generateWithAzure : provider === 'gemini' ? generateWithGemini : generateWithOpenAI;
 
     const highlights = await generateWithProvider(files, casePerspective);
 

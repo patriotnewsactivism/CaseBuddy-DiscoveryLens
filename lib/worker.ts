@@ -6,13 +6,6 @@ import { analyzeFileServer as analyzeWithOpenAI } from './openAIService';
 import { analyzeFileServer as analyzeWithGemini } from './geminiServerService';
 import { LRUCache } from './cache';
 
-// Free-first provider dispatch (Azure removed): Gemini free tier when
-// available, otherwise OpenAI. Cohere is handled in the analyze API route.
-const analyzeFileServer: typeof analyzeWithGemini = (input) => {
-  const provider = getConfiguredAIProvider();
-  if (provider === 'openai') return analyzeWithOpenAI(input);
-  return analyzeWithGemini(input);
-};
 import type { Database, Json } from './database.types';
 
 // Dispatch to whichever provider is configured (AI_PROVIDER env, or
@@ -23,7 +16,7 @@ import type { Database, Json } from './database.types';
 // wasn't configured even if Gemini or OpenAI were.
 async function analyzeFileServer(args: Parameters<typeof analyzeWithGemini>[0]) {
   const provider = getConfiguredAIProvider();
-  if (provider === 'azure') return analyzeWithAzure(args);
+  if ((provider as string) === 'azure') return analyzeWithAzure(args);
   if (provider === 'gemini') return analyzeWithGemini(args);
   return analyzeWithOpenAI(args);
 }

@@ -300,7 +300,7 @@ export function exportSelectivePDF(files: DiscoveryFile[], projectName: string, 
         ${fields.sentiment && f.analysis?.sentiment ? `<span class="sentiment ${sentimentClass}">${esc(f.analysis.sentiment)}</span>` : ''}
       </div>
       <h3>${esc(f.name)}</h3>
-      <p class="file-meta">${esc(f.type)} &middot; ${(f.file.size / 1024 / 1024).toFixed(2)} MB</p>
+      <p class="file-meta">${esc(f.type)} &middot; ${f.file ? (f.file.size / 1024 / 1024).toFixed(2) : (f.sizeBytes ? (f.sizeBytes / 1024 / 1024).toFixed(2) : '?')} MB</p>
       ${fields.summary && f.analysis?.summary ? `
         <div class="section">
           <strong>Executive Summary</strong>

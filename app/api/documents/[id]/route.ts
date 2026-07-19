@@ -11,8 +11,7 @@ export async function GET(
     const { id } = await params;
     const supabase = getSupabaseAdmin();
 
-    const { data: document, error } = await supabase
-      .from('documents')
+    const { data: document, error } = await (supabase.from('documents') as any)
       .select('*')
       .eq('id', id)
       .single();
@@ -101,9 +100,8 @@ export async function PATCH(
     }
     if (evidenceType !== undefined) updates.document_type = evidenceType;
 
-    const { data: document, error } = await supabase
-      .from('documents')
-      .update(updates as any)
+    const { data: document, error } = await (supabase.from('documents') as any)
+      .update(updates)
       .eq('id', id)
       .select()
       .single();
@@ -130,8 +128,7 @@ export async function DELETE(
     const supabase = getSupabaseAdmin();
 
     // Get document to find storage path
-    const { data: document } = await supabase
-      .from('documents')
+    const { data: document } = await (supabase.from('documents') as any)
       .select('storage_path')
       .eq('id', id)
       .single();
@@ -144,8 +141,7 @@ export async function DELETE(
     }
 
     // Delete database record
-    const { error } = await supabase
-      .from('documents')
+    const { error } = await (supabase.from('documents') as any)
       .delete()
       .eq('id', id);
 
