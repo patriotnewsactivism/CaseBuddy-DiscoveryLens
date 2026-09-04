@@ -133,34 +133,34 @@ begin
     create trigger set_updated_at
       before update on public.user_profiles
       for each row
-      execute function public.handle_updated_at();
+      execute function public.update_updated_at_column();
   end if;
   
   if not exists (select 1 from pg_trigger where tgname = 'set_updated_at' and tgrelid = 'public.project_members'::regclass) then
     create trigger set_updated_at
       before update on public.project_members
       for each row
-      execute function public.handle_updated_at();
+      execute function public.update_updated_at_column();
   end if;
   
   if not exists (select 1 from pg_trigger where tgname = 'set_updated_at' and tgrelid = 'public.document_comments'::regclass) then
     create trigger set_updated_at
       before update on public.document_comments
       for each row
-      execute function public.handle_updated_at();
+      execute function public.update_updated_at_column();
   end if;
   
   if not exists (select 1 from pg_trigger where tgname = 'set_updated_at' and tgrelid = 'public.tasks'::regclass) then
     create trigger set_updated_at
       before update on public.tasks
       for each row
-      execute function public.handle_updated_at();
+      execute function public.update_updated_at_column();
   end if;
   
   if not exists (select 1 from pg_trigger where tgname = 'set_updated_at' and tgrelid = 'public.activity_log'::regclass) then
     create trigger set_updated_at
       before update on public.activity_log
       for each row
-      execute function public.handle_updated_at();
+      execute function public.update_updated_at_column();
   end if;
 end $$;
