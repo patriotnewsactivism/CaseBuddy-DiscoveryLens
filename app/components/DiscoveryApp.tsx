@@ -7,6 +7,7 @@ import { lookup as mimeLookup } from 'mime-types';
 import { ChatMessage, DiscoveryFile, FileType, ViewMode, AnalysisData, PresignedUpload, ProjectFileDescriptor, Project, CasePerspective, CloudDocument } from '@/lib/types';
 import { BATES_PREFIX_DEFAULT } from '@/lib/constants';
 import { analyzeFile, chatWithDiscovery } from '@/lib/geminiService';
+import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import {
   createProject,
   saveDocumentToCloud,
@@ -599,7 +600,7 @@ export default function App() {
     setSaveMessage(null);
 
     try {
-      const presignResponse = await fetch('/api/projects/presign', {
+      const presignResponse = await authenticatedFetch('/api/projects/presign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -626,7 +627,7 @@ export default function App() {
         const formData = new FormData();
         formData.append('file', file.file);
 
-        const uploadResult = await fetch(upload.uploadUrl, {
+        const uploadResult = await authenticatedFetch(upload.uploadUrl, {
           method: 'POST',
           body: formData,
         });
@@ -653,7 +654,7 @@ export default function App() {
         }),
       };
 
-      const saveResponse = await fetch('/api/projects/save', {
+      const saveResponse = await authenticatedFetch('/api/projects/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(manifestPayload),
@@ -762,7 +763,7 @@ export default function App() {
   const handleRecordExport = useCallback(async (documentIds: string[], format: string, fields: ExportFields) => {
     if (documentIds.length === 0 || !currentProject) return;
     try {
-      await fetch('/api/reports', {
+      await authenticatedFetch('/api/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

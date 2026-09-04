@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
+import { requireAuthenticatedUser, requireProjectRole } from '@/lib/serverAuth';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -7,7 +8,6 @@ interface RouteParams {
 
 // job_queue is not yet in the generated types — use untyped client for these routes
 function getDb() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return getSupabaseAdmin() as any;
 }
 
@@ -22,9 +22,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const authentication = await requireAuthenticatedUser(request);
+    if (!authentication.ok) return authentication.response;
+
     const { data: job, error } = await getDb()
       .from('job_queue')
-      .select('*')
+      .select('project_id')
       .eq('id', id)
       .single();
 
@@ -38,7 +41,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       throw new Error(`Failed to fetch job: ${error.message}`);
     }
 
-    return NextResponse.json({ job });
+    if (!job?.project_id) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    }
+
+    const authorization = await requireProjectRole(request, job.project_id, ['viewer']);
+    if (!authorization.ok) return authorization.response;
+
+    const { data: authorizedJob, error: authorizedJobError } = await getDb()
+      .from('job_queue')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (authorizedJobError) throw new Error(`Failed to fetch job: ${authorizedJobError.message}`);
+
+    return NextResponse.json({ job: authorizedJob });
   } catch (error: unknown) {
     console.error('Error fetching job:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -60,9 +78,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const authentication = await requireAuthenticatedUser(request);
+    if (!authentication.ok) return authentication.response;
+
     const { data: job, error: fetchError } = await getDb()
       .from('job_queue')
-      .select('status')
+      .select('project_id, status')
       .eq('id', id)
       .single();
 
@@ -75,6 +96,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       }
       throw new Error(`Failed to fetch job: ${fetchError.message}`);
     }
+
+    if (!job?.project_id) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    }
+
+    const authorization = await requireProjectRole(request, job.project_id, ['paralegal']);
+    if (!authorization.ok) return authorization.response;
 
     if (job?.status === 'processing') {
       return NextResponse.json(
@@ -113,6 +141,22 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         { status: 400 }
       );
     }
+
+    const authentication = await requireAuthenticatedUser(request);
+    if (!authentication.ok) return authentication.response;
+
+    const { data: existingJob, error: existingJobError } = await getDb()
+      .from('job_queue')
+      .select('project_id')
+      .eq('id', id)
+      .single();
+
+    if (existingJobError || !existingJob?.project_id) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    }
+
+    const authorization = await requireProjectRole(request, existingJob.project_id, ['paralegal']);
+    if (!authorization.ok) return authorization.response;
 
     const body = await request.json();
     const { status, priority, maxAttempts } = body;

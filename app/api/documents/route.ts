@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
+import { requireAuthenticatedUser, requireProjectRole } from '@/lib/serverAuth';
 
 /**
  * Ensures a DiscoveryLens-specific case exists for the given project,
@@ -54,11 +55,13 @@ async function getOrCreateDiscoveryCase(
 // POST /api/documents - Create a new document record
 export async function POST(request: NextRequest) {
   try {
+    const authentication = await requireAuthenticatedUser(request);
+    if (!authentication.ok) return authentication.response;
+
     const body = await request.json();
     const {
       projectId,
       caseId,
-      userId,
       name,
       mimeType,
       fileType,
@@ -79,13 +82,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const authorization = await requireProjectRole(request, effectiveProjectId, ['paralegal']);
+    if (!authorization.ok) return authorization.response;
+
+    if (!storagePath.startsWith(`${effectiveProjectId}/`)) {
+      return NextResponse.json({ error: 'storagePath must belong to the project' }, { status: 400 });
+    }
+
     const supabase = getSupabaseAdmin();
 
     // Resolve case_id: use provided caseId, or auto-create one for the project
     let resolvedCaseId = caseId;
     if (!resolvedCaseId && projectId) {
       try {
-        resolvedCaseId = await getOrCreateDiscoveryCase(supabase, projectId, userId);
+        resolvedCaseId = await getOrCreateDiscoveryCase(supabase, projectId, authorization.value.user.id);
       } catch (err) {
         console.error('[POST /api/documents] Could not resolve case_id:', err);
         // Fall through – the insert will surface the NOT-NULL error if the column requires it
@@ -111,9 +121,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Set user_id (required by the shared DB schema)
-    if (userId) {
-      documentData.user_id = userId;
-    }
+    documentData.user_id = authorization.value.user.id;
 
     // Add optional fields
     if (mimeType) documentData.mime_type = mimeType;

@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import nextPlugin from '@next/eslint-plugin-next';
+import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
@@ -20,6 +21,7 @@ export default tseslint.config(
     },
     plugins: {
       '@next/next': nextPlugin,
+      'react-hooks': reactHooks,
       '@typescript-eslint': tseslint.plugin,
     },
     rules: {

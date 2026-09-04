@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 import { validateProjectPatchInput, validateUuid } from '@/lib/projectValidation';
+import { requireProjectRole } from '@/lib/serverAuth';
 import type { Database } from '@/types/database.types';
 
 // GET /api/projects/[id] - Get project with all documents
@@ -13,6 +14,9 @@ export async function GET(
     if (!validateUuid(id)) {
       return NextResponse.json({ error: 'Invalid project id' }, { status: 400 });
     }
+
+    const authorization = await requireProjectRole(request, id, ['viewer']);
+    if (!authorization.ok) return authorization.response;
 
     const supabase = getSupabaseAdmin();
 
@@ -91,6 +95,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid project id' }, { status: 400 });
     }
 
+    const authorization = await requireProjectRole(request, id, ['paralegal']);
+    if (!authorization.ok) return authorization.response;
+
     const body = await request.json();
     const validation = validateProjectPatchInput(body);
     if (!validation.ok) {
@@ -136,6 +143,9 @@ export async function DELETE(
     if (!validateUuid(id)) {
       return NextResponse.json({ error: 'Invalid project id' }, { status: 400 });
     }
+
+    const authorization = await requireProjectRole(request, id, ['owner']);
+    if (!authorization.ok) return authorization.response;
 
     const supabase = getSupabaseAdmin();
 

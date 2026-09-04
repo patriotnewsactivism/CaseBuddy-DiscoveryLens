@@ -30,7 +30,10 @@ let supabaseAdmin: SupabaseClient | null = null;
 
 export function getSupabaseAdmin(): SupabaseClient {
   if (!supabaseAdmin) {
-    const validation = validateSupabaseServerEnv(process.env);
+    const validation = validateSupabaseServerEnv({
+      NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    });
 
     if (!validation.isValid) {
       throw new Error(`Missing required Supabase server environment variables: ${validation.missing.join(', ')}`);

@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
+import { requireAuthenticatedUser, requireProjectRole } from '@/lib/serverAuth';
 
 export const maxDuration = 300; // 5 minutes for large file uploads
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 // POST /api/storage/upload - Upload a file to Supabase Storage
 export async function POST(request: NextRequest) {
   try {
+    const authentication = await requireAuthenticatedUser(request);
+    if (!authentication.ok) return authentication.response;
+
     const formData = await request.formData();
 
     const file = formData.get('file');
@@ -23,6 +28,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const authorization = await requireProjectRole(request, projectId, ['paralegal']);
+    if (!authorization.ok) return authorization.response;
+
+    if ((file as File).size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json({ error: 'File exceeds the 100 MB upload limit' }, { status: 413 });
+    }
+
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(batesNumber)) {
+      return NextResponse.json({ error: 'Invalid Bates number' }, { status: 400 });
+    }
+
     const arrayBuffer = await (file as File).arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
@@ -36,7 +52,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const storagePath = `${projectId}/${batesNumber}_${fileName}`;
+    const safeFileName = fileName.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 160);
+    const storagePath = `${projectId}/${batesNumber}_${safeFileName}`;
 
     const supabase = getSupabaseAdmin();
 
@@ -51,7 +68,7 @@ export async function POST(request: NextRequest) {
 
     const { data: urlData } = await supabase.storage
       .from('discovery-files')
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 365);
+      .createSignedUrl(storagePath, 60 * 60);
 
     return NextResponse.json({
       storagePath: data.path,

@@ -1,6 +1,7 @@
 const REQUIRED_SUPABASE_SERVER_ENV_VARS = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'] as const;
 
 export type RequiredSupabaseServerEnvVar = (typeof REQUIRED_SUPABASE_SERVER_ENV_VARS)[number];
+type SupabaseServerEnvironment = Partial<Pick<NodeJS.ProcessEnv, RequiredSupabaseServerEnvVar>>;
 
 export interface SupabaseServerEnvValidationResult {
   isValid: boolean;
@@ -8,7 +9,7 @@ export interface SupabaseServerEnvValidationResult {
 }
 
 export function validateSupabaseServerEnv(
-  env: NodeJS.ProcessEnv
+  env: SupabaseServerEnvironment
 ): SupabaseServerEnvValidationResult {
   const missing = REQUIRED_SUPABASE_SERVER_ENV_VARS.filter((name) => !env[name]);
 
@@ -18,7 +19,7 @@ export function validateSupabaseServerEnv(
   };
 }
 
-export function getSupabaseServerEnvStatusMessage(env: NodeJS.ProcessEnv): string {
+export function getSupabaseServerEnvStatusMessage(env: SupabaseServerEnvironment): string {
   const { isValid, missing } = validateSupabaseServerEnv(env);
 
   if (isValid) {

@@ -15,7 +15,14 @@ describe('getConfiguredAIProvider', () => {
     expect(getConfiguredAIProvider({ COHERE_API_KEY: 'co-test' })).toBe('cohere');
   });
 
-  it('prefers free tiers: cohere over gemini over paid openai', () => {
+  it('prefers Mistral, then Cohere, before paid OpenAI', () => {
+    expect(
+      getConfiguredAIProvider({
+        MISTRAL_API_KEY: 'mi-test',
+        COHERE_API_KEY: 'co-test',
+        OPENAI_API_KEY: 'sk-test',
+      })
+    ).toBe('mistral');
     expect(
       getConfiguredAIProvider({
         COHERE_API_KEY: 'co-test',
@@ -28,7 +35,7 @@ describe('getConfiguredAIProvider', () => {
         GEMINI_API_KEY: 'gm-test',
         OPENAI_API_KEY: 'sk-test',
       })
-    ).toBe('gemini');
+    ).toBe('openai');
   });
 
   it('respects AI_PROVIDER=openai when key exists', () => {
@@ -63,7 +70,7 @@ describe('getConfiguredAIProvider', () => {
 
   it('throws when no keys are configured', () => {
     expect(() => getConfiguredAIProvider({})).toThrow(
-      'No AI provider API key configured. Set COHERE_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY.'
+      'No AI provider API key configured. Set MISTRAL_API_KEY, COHERE_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.'
     );
   });
 
