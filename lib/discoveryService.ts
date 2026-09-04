@@ -177,6 +177,21 @@ export async function updateDocumentAnalysis(documentId: string, analysis: any) 
   return response.json();
 }
 
+export async function updateDocumentTags(documentId: string, tags: string[]) {
+  const response = await fetch(`/api/documents/${documentId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to update tags' }));
+    throw new Error(error.details ? `${error.error}: ${error.details}` : error.error || 'Failed to update tags');
+  }
+
+  return response.json();
+}
+
 export async function updateDocumentStatus(documentId: string, status: 'processing' | 'complete' | 'failed', errorMessage?: string) {
   const response = await fetch(`/api/documents/${documentId}`, {
     method: 'PATCH',

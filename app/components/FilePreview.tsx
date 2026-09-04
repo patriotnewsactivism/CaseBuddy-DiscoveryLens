@@ -8,9 +8,10 @@ import TagInput from './TagInput';
 interface FilePreviewProps {
   file: DiscoveryFile;
   onExportDocument?: (file: DiscoveryFile) => void;
+  onUpdateTags?: (fileId: string, tags: string[]) => void;
 }
 
-const FilePreview: React.FC<FilePreviewProps> = ({ file, onExportDocument }) => {
+const FilePreview: React.FC<FilePreviewProps> = ({ file, onExportDocument, onUpdateTags }) => {
   const [activeTab, setActiveTab] = useState<'preview' | 'analysis' | 'transcription' | 'report'>('preview');
 
   const renderCloudOnlyNotice = () => (

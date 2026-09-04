@@ -51,8 +51,10 @@ export async function PATCH(
       extractedText?: string | null;
       evidenceType?: string | null;
       sentiment?: string | null;
+      tags?: string[];
+      customFields?: Record<string, unknown>;
     };
-    const { analysis, status, errorMessage, summary, keyFacts, extractedText, evidenceType } = body;
+    const { analysis, status, errorMessage, summary, keyFacts, extractedText, evidenceType, tags, customFields } = body;
 
     const supabase = getSupabaseAdmin();
 
