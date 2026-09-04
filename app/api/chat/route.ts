@@ -4,11 +4,15 @@ import { isAIAuthError, isAIProviderConfigError } from '@/lib/aiError';
 import { chatWithDiscoveryServer as chatWithOpenAI } from '@/lib/openAIService';
 import { chatWithDiscoveryServer as chatWithGemini } from '@/lib/geminiServerService';
 import { chatWithDiscoveryServer as chatWithMistral, isMistralConfigured } from '@/lib/mistralServerService';
+import { requireAuthenticatedUser } from '@/lib/serverAuth';
 
 export const maxDuration = 300; // 5 minutes for complex queries
 
 export async function POST(request: NextRequest) {
   try {
+    const authorization = await requireAuthenticatedUser(request);
+    if (!authorization.ok) return authorization.response;
+
     const body = await request.json();
     const { query, filesContext, activeFile, casePerspective } = body;
 

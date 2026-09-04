@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildObjectKey, normalizeProjectName } from '@/lib/storageUtils';
+import { requireAuthenticatedUser } from '@/lib/serverAuth';
 
 /**
  * Presign endpoint for preparing file uploads
@@ -9,6 +10,9 @@ import { buildObjectKey, normalizeProjectName } from '@/lib/storageUtils';
  */
 export async function POST(request: NextRequest) {
   try {
+    const authorization = await requireAuthenticatedUser(request);
+    if (!authorization.ok) return authorization.response;
+
     const body = await request.json();
     const { projectName, files } = body;
 
@@ -25,7 +29,7 @@ export async function POST(request: NextRequest) {
         throw new Error('Each file requires id, name, and mimeType.');
       }
 
-      const objectKey = buildObjectKey(projectName, file.name, file.id);
+      const objectKey = `users/${authorization.value.user.id}/${buildObjectKey(projectName, file.name, file.id)}`;
 
       // Return server-side upload endpoint instead of presigned URL
       // Client will POST file data here

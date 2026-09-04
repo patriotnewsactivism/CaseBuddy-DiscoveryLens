@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { transcribeMedia } from '@/lib/transcriptionProvider';
 import { downloadMediaBuffer, getMaxMediaBytes } from '@/lib/mediaTranscoder';
+import { requireAuthenticatedUser } from '@/lib/serverAuth';
 
 export const maxDuration = 300; // 5 minutes for transcription
 
@@ -51,6 +52,9 @@ async function parseRequest(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authorization = await requireAuthenticatedUser(request);
+    if (!authorization.ok) return authorization.response;
+
     const { buffer, mimeType, fileName, batesNumber } = await parseRequest(request);
 
     // Validate that this is an audio or video file

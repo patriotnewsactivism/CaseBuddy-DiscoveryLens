@@ -61,8 +61,7 @@ const CaseHighlights: React.FC<CaseHighlightsProps> = ({ files, casePerspective,
     if (!hasGenerated && !isLoading && analyzedFiles.length >= MIN_ANALYZED_FILES) {
       runGeneration();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analyzedFiles.length]);
+  }, [analyzedFiles.length, hasGenerated, isLoading, runGeneration]);
 
   if (analyzedFiles.length < MIN_ANALYZED_FILES) {
     return (

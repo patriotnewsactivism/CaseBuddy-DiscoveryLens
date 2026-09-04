@@ -7,6 +7,7 @@ import { analyzeFileServer as analyzeWithMistral } from '@/lib/mistralServerServ
 import { analyzeDiscoveryDoc } from '@/lib/cohereService';
 import { chunkText, extractTextFromBase64 } from '@/lib/extractionService';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
+import { requireAuthenticatedUser, requireProjectRole } from '@/lib/serverAuth';
 
 async function downloadStorageObject(storagePath: string, signedUrl?: string) {
   const supabase = getSupabaseAdmin();
@@ -49,6 +50,9 @@ export const maxDuration = 300; // 5 minutes for long file analysis
 
 export async function POST(request: NextRequest) {
   try {
+    const authentication = await requireAuthenticatedUser(request);
+    if (!authentication.ok) return authentication.response;
+
     const body = await request.json();
     const { base64Data, mimeType, fileName, batesNumber, fileType, casePerspective, extractedText, storagePath, signedUrl } = body;
 
@@ -71,6 +75,12 @@ export async function POST(request: NextRequest) {
         { error: 'Missing required fields: storagePath, base64Data, or extractedText' },
         { status: 400 }
       );
+    }
+
+    if (typeof storagePath === 'string') {
+      const projectId = storagePath.split('/')[0];
+      const authorization = await requireProjectRole(request, projectId, ['viewer']);
+      if (!authorization.ok) return authorization.response;
     }
 
     let cleanedText = extractedText as string | undefined;

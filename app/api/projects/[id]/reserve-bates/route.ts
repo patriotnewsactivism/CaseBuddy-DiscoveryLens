@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 import { validateUuid } from '@/lib/projectValidation';
+import { requireProjectRole } from '@/lib/serverAuth';
 
 // POST /api/projects/[id]/reserve-bates - Atomically reserve a block of N
 // contiguous Bates numbers for this project (see migration
@@ -16,6 +17,9 @@ export async function POST(
     if (!validateUuid(id)) {
       return NextResponse.json({ error: 'Invalid project id' }, { status: 400 });
     }
+
+    const authorization = await requireProjectRole(request, id, ['paralegal']);
+    if (!authorization.ok) return authorization.response;
 
     const body = await request.json().catch(() => ({}));
     const count = Number(body?.count);

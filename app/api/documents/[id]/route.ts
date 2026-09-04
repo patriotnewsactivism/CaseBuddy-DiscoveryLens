@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
 import type { Database } from '@/types/database.types';
+import { requireDocumentRole } from '@/lib/serverAuth';
 
 // GET /api/documents/[id] - Get a single document
 export async function GET(
@@ -9,6 +10,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const authorization = await requireDocumentRole(request, id, ['viewer']);
+    if (!authorization.ok) return authorization.response;
     const supabase = getSupabaseAdmin();
 
     const { data: document, error } = await (supabase.from('documents') as any)
@@ -41,6 +44,8 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+    const authorization = await requireDocumentRole(request, id, ['paralegal']);
+    if (!authorization.ok) return authorization.response;
     const body = (await request.json()) as {
       analysis?: Database['public']['Tables']['documents']['Row']['analysis'];
       status?: Database['public']['Tables']['documents']['Row']['status'];
@@ -127,6 +132,8 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const authorization = await requireDocumentRole(request, id, ['paralegal']);
+    if (!authorization.ok) return authorization.response;
     const supabase = getSupabaseAdmin();
 
     // Get document to find storage path

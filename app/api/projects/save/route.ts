@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createStorageClient, getStorageConfig, saveManifestObject } from '@/lib/storageServer';
 import { normalizeProjectName } from '@/lib/storageUtils';
+import { requireAuthenticatedUser } from '@/lib/serverAuth';
 
 export async function POST(request: NextRequest) {
   try {
+    const authorization = await requireAuthenticatedUser(request);
+    if (!authorization.ok) return authorization.response;
+
     const body = await request.json();
     const { projectName, files, casePerspective } = body;
 
@@ -21,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     const slug = normalizeProjectName(projectName);
-    const manifestKey = `projects/${slug}/manifest.json`;
+    const manifestKey = `users/${authorization.value.user.id}/projects/${slug}/manifest.json`;
     const manifest = {
       projectName,
       savedAt: new Date().toISOString(),

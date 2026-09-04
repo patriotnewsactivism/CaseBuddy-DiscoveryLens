@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseClient';
+import { requireAuthenticatedUser } from '@/lib/serverAuth';
 
 const STORAGE_BUCKET = 'discovery-files';
 
@@ -10,6 +11,9 @@ const STORAGE_BUCKET = 'discovery-files';
  */
 export async function POST(request: NextRequest) {
   try {
+    const authorization = await requireAuthenticatedUser(request);
+    if (!authorization.ok) return authorization.response;
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const key = request.nextUrl.searchParams.get('key');
@@ -22,10 +26,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No key provided' }, { status: 400 });
     }
 
+    if (!key.startsWith(`users/${authorization.value.user.id}/`)) {
+      return NextResponse.json({ error: 'Invalid upload key' }, { status: 403 });
+    }
+
     const supabase = getSupabaseAdmin();
     const fileBuffer = await file.arrayBuffer();
 
-    console.log(`[upload] Uploading file to Supabase: ${key} (${file.size} bytes)`);
+    console.log(`[upload] Uploading ${file.size} bytes`);
 
     const { error } = await supabase.storage
       .from(STORAGE_BUCKET)
@@ -42,7 +50,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[upload] Upload successful: ${key}`);
+    console.log('[upload] Upload successful');
 
     return NextResponse.json({
       success: true,

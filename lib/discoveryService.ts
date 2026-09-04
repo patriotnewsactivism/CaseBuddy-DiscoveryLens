@@ -1,5 +1,6 @@
 import { DiscoveryFile } from './types';
 import { sha256FromFile } from './checksum';
+import { authenticatedFetch } from './authenticatedFetch';
 
 /**
  * Service layer for discovery operations with cloud storage
@@ -7,7 +8,7 @@ import { sha256FromFile } from './checksum';
 
 // Project Operations
 export async function createProject(name: string, description?: string, batesPrefix: string = 'DEF', caseId?: string | null) {
-  const response = await fetch('/api/projects', {
+  const response = await authenticatedFetch('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, description, batesPrefix, caseId: caseId ?? null }),
@@ -26,7 +27,7 @@ export async function createProject(name: string, description?: string, batesPre
 }
 
 export async function getProject(projectId: string) {
-  const response = await fetch(`/api/projects/${projectId}`);
+  const response = await authenticatedFetch(`/api/projects/${projectId}`);
 
   if (!response.ok) {
     const error = await response.json();
@@ -37,7 +38,7 @@ export async function getProject(projectId: string) {
 }
 
 export async function updateProject(projectId: string, updates: { name?: string; description?: string; batesCounter?: number }) {
-  const response = await fetch(`/api/projects/${projectId}`, {
+  const response = await authenticatedFetch(`/api/projects/${projectId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -58,7 +59,7 @@ export async function updateProject(projectId: string, updates: { name?: string;
  * counter only in client-side React state.
  */
 export async function reserveBatesNumbers(projectId: string, count: number): Promise<number> {
-  const response = await fetch(`/api/projects/${projectId}/reserve-bates`, {
+  const response = await authenticatedFetch(`/api/projects/${projectId}/reserve-bates`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ count }),
@@ -74,7 +75,7 @@ export async function reserveBatesNumbers(projectId: string, count: number): Pro
 }
 
 export async function listProjects() {
-  const response = await fetch('/api/projects');
+  const response = await authenticatedFetch('/api/projects');
 
   if (!response.ok) {
     const error = await response.json();
@@ -100,7 +101,7 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
     formData.append('batesNumber', discoveryFile.batesNumber.formatted);
     formData.append('checksum', checksum);
 
-    const storageResponse = await fetch('/api/storage/upload', {
+    const storageResponse = await authenticatedFetch('/api/storage/upload', {
       method: 'POST',
       body: formData,
     });
@@ -114,12 +115,11 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
     const { storagePath, signedUrl } = await storageResponse.json();
 
     // Step 2: Create document record in database
-    const docResponse = await fetch('/api/documents', {
+    const docResponse = await authenticatedFetch('/api/documents', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         projectId,
-        userId,
         name: discoveryFile.name,
         mimeType: discoveryFile.mimeType,
         fileType: discoveryFile.type,
@@ -155,7 +155,7 @@ export async function saveDocumentToCloud(discoveryFile: DiscoveryFile, projectI
 export async function updateDocumentAnalysis(documentId: string, analysis: any) {
   // Mirror key analysis fields into dedicated columns for CaseBuddy to query,
   // while also storing the full structured JSON in the analysis column.
-  const response = await fetch(`/api/documents/${documentId}`, {
+  const response = await authenticatedFetch(`/api/documents/${documentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -178,7 +178,7 @@ export async function updateDocumentAnalysis(documentId: string, analysis: any) 
 }
 
 export async function updateDocumentTags(documentId: string, tags: string[]) {
-  const response = await fetch(`/api/documents/${documentId}`, {
+  const response = await authenticatedFetch(`/api/documents/${documentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tags }),
@@ -193,7 +193,7 @@ export async function updateDocumentTags(documentId: string, tags: string[]) {
 }
 
 export async function updateDocumentStatus(documentId: string, status: 'processing' | 'complete' | 'failed', errorMessage?: string) {
-  const response = await fetch(`/api/documents/${documentId}`, {
+  const response = await authenticatedFetch(`/api/documents/${documentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -211,7 +211,7 @@ export async function updateDocumentStatus(documentId: string, status: 'processi
 }
 
 export async function deleteDocument(documentId: string) {
-  const response = await fetch(`/api/documents/${documentId}`, {
+  const response = await authenticatedFetch(`/api/documents/${documentId}`, {
     method: 'DELETE',
   });
 

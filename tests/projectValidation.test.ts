@@ -19,6 +19,7 @@ describe('validateCreateProjectInput', () => {
         name: 'Important Case',
         description: 'Notes here',
         batesPrefix: 'ABC12',
+        caseId: null,
       },
     });
   });

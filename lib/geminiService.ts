@@ -1,4 +1,5 @@
 import { CasePerspective, CaseHighlight, DiscoveryFile, FileType } from './types';
+import { authenticatedFetch } from './authenticatedFetch';
 
 const extractClientText = async (file: File, mimeType: string): Promise<string | undefined> => {
   const textualMime = mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('xml') || mimeType.includes('html');
@@ -98,7 +99,7 @@ export const transcribeMediaFile = async (
     formData.append('fileName', discoveryFile.name);
     formData.append('batesNumber', discoveryFile.batesNumber.formatted);
 
-    const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
+    const response = await authenticatedFetch('/api/transcribe', { method: 'POST', body: formData });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       console.warn(
@@ -141,7 +142,7 @@ export const analyzeFile = async (
     payload.base64Data = undefined;
   }
 
-  const response = await fetch('/api/analyze', {
+  const response = await authenticatedFetch('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -188,7 +189,7 @@ export const generateCaseHighlights = async (
 
   if (files.length === 0) return [];
 
-  const response = await fetch('/api/insights', {
+  const response = await authenticatedFetch('/api/insights', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ files, casePerspective }),
@@ -230,7 +231,7 @@ export const chatWithDiscovery = async (
     }
   }
 
-  const response = await fetch('/api/chat', {
+  const response = await authenticatedFetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

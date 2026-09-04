@@ -4,11 +4,15 @@ import { generateInsightsServer as generateWithAzure } from '@/lib/azureOpenAISe
 import { generateInsightsServer as generateWithOpenAI } from '@/lib/openAIService';
 import { generateInsightsServer as generateWithGemini } from '@/lib/geminiServerService';
 import type { InsightsFileContext } from '@/lib/insightsTypes';
+import { requireAuthenticatedUser } from '@/lib/serverAuth';
 
 export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   try {
+    const authorization = await requireAuthenticatedUser(request);
+    if (!authorization.ok) return authorization.response;
+
     const body = await request.json();
     const { files, casePerspective } = body as { files: InsightsFileContext[]; casePerspective?: string };
 
