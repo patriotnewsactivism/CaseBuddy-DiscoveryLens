@@ -45,7 +45,7 @@ create table if not exists public.document_comments (
 create table if not exists public.tasks (
   id uuid primary key default uuid_generate_v4(),
   project_id uuid references public.projects(id) on delete cascade not null,
-  document_id uuid references public.documents(id) on delete cascade set null,
+  document_id uuid references public.documents(id) on delete set null,
   assigned_to uuid references auth.users(id),
   created_by uuid references auth.users(id) not null,
   title text not null,
